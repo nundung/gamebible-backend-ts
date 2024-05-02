@@ -2,8 +2,10 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { body } from 'express-validator';
 import { handleValidationErrors } from '../middleware/validator';
 import NotFoundException from '../exception/notFoundException';
+import ConflictException from '../exception/conflictException';
+import hashPassword from '../module/hashPassword';
+import pool from '../config/postgres';
 import jwt from 'jsonwebtoken';
-import pool from '../config/postges';
 import bcrypt from 'bcrypt';
 
 require('dotenv').config();
@@ -75,4 +77,130 @@ router.post(
     }
 );
 
+// 회원가입
+router.post(
+    '/',
+    body('id')
+        .trim()
+        .isLength({ min: 4, max: 20 })
+        .withMessage('아이디는 4자 이상 20자 이하로 해주세요.'),
+    body('pw')
+        .trim()
+        .isLength({ min: 8, max: 20 })
+        .withMessage('비밀번호는 8자 이상 20자 이하이어야 합니다.'),
+    body('email').trim().isEmail().withMessage('유효하지 않은 이메일 형식입니다.'),
+    body('nickname')
+        .trim()
+        .isLength({ min: 2, max: 20 })
+        .withMessage('닉네임은 2자 이상 20자 이하로 해주세요.'),
+    handleValidationErrors,
+    async (req, res, next) => {
+        const { id, pw, nickname, email } = req.body as {
+            id: string;
+            pw: string;
+            nickname: string;
+            email: string;
+        };
+        const isAdmin: boolean = false;
+        let poolClient;
+        try {
+            poolClient = await pool.connect();
+            await poolClient.query('BEGIN');
+
+            //아이디 중복 확인
+            const idResults = await poolClient.query(
+                `SELECT
+                    account_local.*
+                FROM
+                    account_local
+                JOIN
+                    "user"
+                ON
+                    account_local.user_idx = "user".idx
+                WHERE
+                    account_local.id = $1
+                AND
+                    "user".deleted_at IS NULL`,
+                [id]
+            );
+            if (idResults.rows.length > 0) {
+                throw new ConflictException('아이디가 이미 존재합니다.');
+            }
+
+            //닉네임 중복 확인
+            const nicknameResults = await poolClient.query(
+                `SELECT
+                    * 
+                FROM
+                    "user" 
+                WHERE 
+                    nickname = $1 
+                AND 
+                    deleted_at IS NULL`,
+                [nickname]
+            );
+            if (nicknameResults.rows.length > 0) {
+                throw new ConflictException('닉네임이 이미 존재합니다.');
+            }
+
+            //이메일 중복 확인
+            const emailResults = await poolClient.query(
+                `SELECT
+                    * 
+                FROM
+                    "user" 
+                WHERE 
+                    email = $1 
+                AND 
+                    deleted_at IS NULL`,
+                [email]
+            );
+            if (emailResults.rows.length > 0) {
+                throw new ConflictException('이메일이 이미 존재합니다.');
+            }
+
+            const hashedPw = await hashPassword(pw); // 비밀번호 해싱
+            const userResult = await poolClient.query(
+                `INSERT INTO
+                    "user"(
+                        nickname,
+                        email,
+                        is_admin
+                        ) 
+                VALUES ($1, $2, $3)
+                RETURNING idx`,
+                [nickname, email, isAdmin]
+            );
+            if (userResult.rows.length === 0) {
+                await poolClient.query('ROLLBACK');
+                console.log('트랜젝션');
+                return res.status(204).send({ message: '회원가입 실패' });
+            }
+            const userIdx = userResult.rows[0].idx;
+            const accountResult = await poolClient.query(
+                `INSERT INTO
+                    account_local (
+                        user_idx,
+                        id, 
+                        pw
+                        )
+                VALUES ($1, $2, $3)
+                RETURNING *`,
+                [userIdx, id, hashedPw]
+            );
+            if (accountResult.rows.length === 0) {
+                await poolClient.query('ROLLBACK');
+                console.log('트랜젝션');
+                return res.status(204).send({ message: '회원가입 실패' });
+            }
+            await poolClient.query('COMMIT');
+            return res.status(200).send('회원가입 성공');
+        } catch (e) {
+            await poolClient.query('ROLLBACK');
+            next(e);
+        } finally {
+            if (poolClient) poolClient.release();
+        }
+    }
+);
 export default router;
