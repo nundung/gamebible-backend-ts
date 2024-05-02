@@ -10,6 +10,10 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: false }));
 
+const accoutnApi = require('./router/account');
+
+app.use('/account', accoutnApi);
+
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
     console.log(err);
     res.status(err.status || 500).send({
