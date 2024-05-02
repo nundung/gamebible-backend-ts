@@ -1,8 +1,14 @@
 {
-  "type": "module",
+  "name": "node-server-with-typescript",
+  "version": "1.0.0",
+  "description": "A Web & API server built using TypeScript",
+  "main": "dist/server.js",
   "dependencies": {
+    "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
     "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.11.5",
     "typescript": "^5.4.5"
   },
   "devDependencies": {
@@ -14,5 +20,16 @@
     "@types/jsonwebtoken": "^9.0.6",
     "@types/pg": "^8.11.5",
     "ts-node": "^10.9.2"
-  }
+  },
+  "scripts": {
+    "build": "npm run tsc",
+    "tsc": "tsc -p tsconfig.json",
+    "dev": "tsc --watch & NODE_ENV=development nodemon",
+    "test": "tsc && ./node_modules/.bin/mocha dist/**/*.spec.js",
+    "lint": "tslint 'src/**/*.ts' --fix",
+    "clean": "rm -rf dist/ .logs/",
+    "start": "tsc && node dist/server.js"
+  },
+  "author": "Faiz A. Farooqui <faiz@geekyants.com>",
+  "license": "ISC"
 }

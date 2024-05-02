@@ -1,7 +1,7 @@
 import { Pool, PoolConfig } from 'pg';
 require('dotenv').config();
 
-const psqlDBconfig = {
+const psqlDBConfig: PoolConfig = {
     host: process.env.PSQL_HOST || '',
     port: parseInt(process.env.PSQL_PORT || '5432'),
     database: process.env.PSQL_DATABASE || '',
@@ -11,6 +11,6 @@ const psqlDBconfig = {
     connectionTimeoutMillis: 15 * 1000,
 };
 
-const pool = new Pool(psqlDBconfig);
+const pool = new Pool(psqlDBConfig);
 
 export default pool;
