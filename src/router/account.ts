@@ -26,7 +26,6 @@ router.post(
         const { id, pw } = req.body as { id: string; pw: string };
         try {
             // 사용자 정보 조회 (비밀번호는 해시된 상태로 저장되어 있음)
-            const values = [id];
             // 제네릭: 타입을 동적으로 할당함. 그런 제네릭을 써야할 때가 있음
             const { rows: userRows } = await pool.query<{
                 pw: string;
@@ -44,7 +43,7 @@ router.post(
                     "user" u ON al.user_idx = u.idx
                 WHERE
                     al.id = $1 AND u.deleted_at IS NULL`,
-                values
+                [id]
             );
             const user = userRows[0];
 
