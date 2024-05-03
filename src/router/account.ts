@@ -4,6 +4,7 @@ import { handleValidationErrors } from '../middleware/validator';
 import NotFoundException from '../exception/notFoundException';
 import ConflictException from '../exception/conflictException';
 import hashPassword from '../module/hashPassword';
+import { PoolClient, PoolConfig } from 'pg';
 import pool from '../config/postgres';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
@@ -42,7 +43,9 @@ router.post(
                 FROM
                     account_local al
                 JOIN
-                    "user" u ON al.user_idx = u.idx
+                    "user" u 
+                ON 
+                    al.user_idx = u.idx
                 WHERE
                     al.id = $1 AND u.deleted_at IS NULL`,
                 [id]
@@ -102,51 +105,57 @@ router.post(
             email: string;
         };
         const isAdmin: boolean = false;
-        let poolClient;
+        let poolClient: PoolClient | null;
         try {
             poolClient = await pool.connect();
             await poolClient.query('BEGIN');
 
             //아이디 중복 확인
-            const idResults = await poolClient.query(
+            const { rows: idRows } = await poolClient.query<{
+                userIdx: string;
+            }>(
                 `SELECT
-                    account_local.*
+                    al.user_idx AS "userIdx"
                 FROM
-                    account_local
+                    account_local al
                 JOIN
-                    "user"
+                    "user" u
                 ON
-                    account_local.user_idx = "user".idx
+                    al.user_idx = u.idx
                 WHERE
-                    account_local.id = $1
+                    al.id = $1
                 AND
-                    "user".deleted_at IS NULL`,
+                    u.deleted_at IS NULL`,
                 [id]
             );
-            if (idResults.rows.length > 0) {
+            if (idRows.length > 0) {
                 throw new ConflictException('아이디가 이미 존재합니다.');
             }
 
             //닉네임 중복 확인
-            const nicknameResults = await poolClient.query(
+            const { rows: nicknameRows } = await poolClient.query<{
+                userIdx: number;
+            }>(
                 `SELECT
-                    * 
+                    user_idx AS "userIdx"
                 FROM
-                    "user" 
+                    "user"
                 WHERE 
-                    nickname = $1 
+                    nickname = $1
                 AND 
                     deleted_at IS NULL`,
                 [nickname]
             );
-            if (nicknameResults.rows.length > 0) {
+            if (nicknameRows.length > 0) {
                 throw new ConflictException('닉네임이 이미 존재합니다.');
             }
 
             //이메일 중복 확인
-            const emailResults = await poolClient.query(
-                `SELECT
-                    * 
+            const { rows: emailRows } = await poolClient.query<{
+                userIdx: number;
+            }>(
+                `SELECT 
+                    user_idx AS "userIdx"
                 FROM
                     "user" 
                 WHERE 
@@ -155,12 +164,14 @@ router.post(
                     deleted_at IS NULL`,
                 [email]
             );
-            if (emailResults.rows.length > 0) {
+            if (emailRows.length > 0) {
                 throw new ConflictException('이메일이 이미 존재합니다.');
             }
 
             const hashedPw = await hashPassword(pw); // 비밀번호 해싱
-            const userResult = await poolClient.query(
+            const { rows: userRows } = await poolClient.query<{
+                idx: number;
+            }>(
                 `INSERT INTO
                     "user"(
                         nickname,
@@ -171,33 +182,35 @@ router.post(
                 RETURNING idx`,
                 [nickname, email, isAdmin]
             );
-            if (userResult.rows.length === 0) {
+            if (userRows.length === 0) {
                 await poolClient.query('ROLLBACK');
                 console.log('트랜젝션');
                 return res.status(204).send({ message: '회원가입 실패' });
             }
-            const userIdx = userResult.rows[0].idx;
-            const accountResult = await poolClient.query(
+
+            const userIdx = userRows[0].idx;
+            const { rows: accountRows } = await poolClient.query(
                 `INSERT INTO
                     account_local (
                         user_idx,
-                        id, 
+                        id,
                         pw
                         )
                 VALUES ($1, $2, $3)
                 RETURNING *`,
                 [userIdx, id, hashedPw]
             );
-            if (accountResult.rows.length === 0) {
+
+            if (accountRows.length === 0) {
                 await poolClient.query('ROLLBACK');
                 console.log('트랜젝션');
                 return res.status(204).send({ message: '회원가입 실패' });
             }
             await poolClient.query('COMMIT');
             return res.status(200).send('회원가입 성공');
-        } catch (e) {
+        } catch (err) {
             await poolClient.query('ROLLBACK');
-            next(e);
+            next(err);
         } finally {
             if (poolClient) poolClient.release();
         }
