@@ -9,6 +9,9 @@ import pool from '../config/postgres';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import InternalServerException from '../exception/internalServerException';
+import generateVerificationCode from '../module/generateVerificationCode';
+import sendVerificationEmail from '../module/sendVerificationEmail';
+import deleteCode from '../module/deleteEmail';
 
 require('dotenv').config();
 const router = Router();
@@ -294,6 +297,58 @@ router.post(
             return res.status(200).send('사용 가능한 닉네임입니다.');
         } catch (err) {
             next(err);
+        }
+    }
+);
+
+//이메일 중복 확인/인증
+router.post(
+    '/email/check',
+    body('email').trim().isEmail().withMessage('유효하지 않은 이메일 형식입니다.'),
+    handleValidationErrors,
+    async (req, res, next) => {
+        try {
+            const email: string = req.body.email;
+            const { rows: emailRows } = await pool.query<{
+                userIdx: string;
+            }>(
+                `SELECT
+                    *
+                FROM
+                    "user"
+                WHERE
+                    email = $1
+                AND
+                    deleted_at IS NULL`,
+                [email]
+            );
+            if (emailRows.length > 0) {
+                throw new ConflictException('이메일이 이미 존재합니다.');
+            } else {
+                const verificationCode = generateVerificationCode();
+                const { rows: codeRows } = await pool.query<{
+                    userIdx: number;
+                }>(
+                    `INSERT INTO
+                        email_verification (
+                            email,
+                            code
+                            )
+                    VALUES
+                        ($1, $2)
+                    RETURNING 
+                        user_idx AS userIdx`,
+                    [email, verificationCode]
+                );
+                if (codeRows.length == 0) {
+                    throw new InternalServerException('회원가입 실패');
+                }
+                await sendVerificationEmail(email, verificationCode);
+                await deleteCode(pool);
+                return res.status(200).send('인증 코드가 발송되었습니다.');
+            }
+        } catch (e) {
+            next(e);
         }
     }
 );
