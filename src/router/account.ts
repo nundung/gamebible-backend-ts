@@ -12,6 +12,7 @@ import InternalServerException from '../exception/internalServerException';
 import generateVerificationCode from '../module/generateVerificationCode';
 import sendVerificationEmail from '../module/sendVerificationEmail';
 import deleteCode from '../module/deleteEmail';
+import ForbiddenException from '../exception/forbiddenException';
 
 require('dotenv').config();
 const router = Router();
@@ -353,4 +354,43 @@ router.post(
     }
 );
 
+//이메일 인증 확인
+router.post(
+    '/email/auth',
+    body('code')
+        .trim()
+        .isLength({ min: 5, max: 5 })
+        .withMessage('인증코드는 5자리 숫자로 해주세요.')
+        .isNumeric()
+        .withMessage('인증코드는 숫자로만 구성되어야 합니다.'),
+    body('email').trim().isEmail().withMessage('유효하지 않은 이메일 형식입니다.'),
+    handleValidationErrors,
+    async (req, res, next) => {
+        try {
+            const { email, code } = req.body as {
+                email: string;
+                code: string;
+            };
+            const { rows: authRows } = await pool.query<{
+                idx: number;
+            }>(
+                `SELECT
+                    idx
+                FROM
+                    email_verification
+                WHERE
+                    email = $1
+                AND
+                    code = $2`,
+                [email, code]
+            );
+            if (authRows.length == 0) {
+                throw new ForbiddenException('잘못된 인증 코드입니다.');
+            }
+            return res.status(200).send('이메일 인증이 완료되었습니다.');
+        } catch (e) {
+            next(e);
+        }
+    }
+);
 export default router;
