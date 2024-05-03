@@ -8,6 +8,7 @@ import { PoolClient, PoolConfig } from 'pg';
 import pool from '../config/postgres';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
+import InternalServerException from '../exception/internalServerException';
 
 require('dotenv').config();
 const router = Router();
@@ -185,6 +186,7 @@ router.post(
             if (userRows.length === 0) {
                 await poolClient.query('ROLLBACK');
                 console.log('트랜젝션');
+                // throw new InternalServerException('회원가입 실패');
                 return res.status(204).send({ message: '회원가입 실패' });
             }
 
@@ -204,6 +206,7 @@ router.post(
             if (accountRows.length === 0) {
                 await poolClient.query('ROLLBACK');
                 console.log('트랜젝션');
+                // throw new InternalServerException('회원가입 실패');
                 return res.status(204).send({ message: '회원가입 실패' });
             }
             await poolClient.query('COMMIT');
@@ -216,4 +219,44 @@ router.post(
         }
     }
 );
+
+//아이디 중복 확인
+router.post(
+    '/id/check',
+    body('id')
+        .trim()
+        .isLength({ min: 4, max: 20 })
+        .withMessage('아이디는 4자 이상 20자 이하로 해주세요.'),
+    handleValidationErrors,
+    async (req, res, next) => {
+        try {
+            const id: string = req.body.id;
+            const { rows: idRows } = await pool.query<{
+                userIdx: number;
+            }>(
+                `SELECT
+                    al.user_idx
+                FROM
+                    account_local al
+                JOIN
+                    "user" u
+                ON
+                    al.user_idx = u.idx
+                WHERE
+                    al.id = $1
+                AND 
+                    u.deleted_at IS NULL
+                `,
+                [id]
+            );
+            if (idRows.length > 0) {
+                throw new ConflictException('아이디가 이미 존재합니다.');
+            }
+            return res.status(200).send('사용 가능한 아이디입니다.');
+        } catch (e) {
+            next(e);
+        }
+    }
+);
+
 export default router;
