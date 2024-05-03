@@ -1,12 +1,18 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { body } from 'express-validator';
+import { body, query } from 'express-validator';
 import { handleValidationErrors } from '../middleware/validator';
 import NotFoundException from '../exception/notFoundException';
 import ConflictException from '../exception/conflictException';
 import hashPassword from '../module/hashPassword';
+import { PoolClient, PoolConfig } from 'pg';
 import pool from '../config/postgres';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
+import InternalServerException from '../exception/internalServerException';
+import generateVerificationCode from '../module/generateVerificationCode';
+import sendVerificationEmail from '../module/sendVerificationEmail';
+import deleteCode from '../module/deleteEmail';
+import ForbiddenException from '../exception/forbiddenException';
 
 require('dotenv').config();
 const router = Router();
@@ -42,7 +48,9 @@ router.post(
                 FROM
                     account_local al
                 JOIN
-                    "user" u ON al.user_idx = u.idx
+                    "user" u 
+                ON 
+                    al.user_idx = u.idx
                 WHERE
                     al.id = $1 AND u.deleted_at IS NULL`,
                 [id]
@@ -77,7 +85,7 @@ router.post(
     }
 );
 
-// 회원가입
+//회원가입
 router.post(
     '/',
     body('id')
@@ -102,33 +110,178 @@ router.post(
             email: string;
         };
         const isAdmin: boolean = false;
-        let poolClient;
+        let poolClient: PoolClient | null;
         try {
             poolClient = await pool.connect();
             await poolClient.query('BEGIN');
 
             //아이디 중복 확인
-            const idResults = await poolClient.query(
+            const { rows: idRows } = await poolClient.query<{
+                userIdx: string;
+            }>(
                 `SELECT
-                    account_local.*
+                    al.user_idx AS "userIdx"
                 FROM
-                    account_local
+                    account_local al
                 JOIN
-                    "user"
+                    "user" u
                 ON
-                    account_local.user_idx = "user".idx
+                    al.user_idx = u.idx
                 WHERE
-                    account_local.id = $1
+                    al.id = $1
                 AND
-                    "user".deleted_at IS NULL`,
+                    u.deleted_at IS NULL`,
                 [id]
             );
-            if (idResults.rows.length > 0) {
+            if (idRows.length > 0) {
                 throw new ConflictException('아이디가 이미 존재합니다.');
             }
 
             //닉네임 중복 확인
-            const nicknameResults = await poolClient.query(
+            const { rows: nicknameRows } = await poolClient.query<{
+                userIdx: number;
+            }>(
+                `SELECT
+                    user_idx AS "userIdx"
+                FROM
+                    "user"
+                WHERE 
+                    nickname = $1
+                AND 
+                    deleted_at IS NULL`,
+                [nickname]
+            );
+            if (nicknameRows.length > 0) {
+                throw new ConflictException('닉네임이 이미 존재합니다.');
+            }
+
+            //이메일 중복 확인
+            const { rows: emailRows } = await poolClient.query<{
+                userIdx: number;
+            }>(
+                `SELECT 
+                    user_idx AS "userIdx"
+                FROM
+                    "user" 
+                WHERE 
+                    email = $1 
+                AND 
+                    deleted_at IS NULL`,
+                [email]
+            );
+            if (emailRows.length > 0) {
+                throw new ConflictException('이메일이 이미 존재합니다.');
+            }
+
+            const hashedPw = await hashPassword(pw); // 비밀번호 해싱
+            const { rows: userRows } = await poolClient.query<{
+                userIdx: number;
+            }>(
+                `INSERT INTO
+                    "user"(
+                        nickname,
+                        email,
+                        is_admin
+                        ) 
+                VALUES ($1, $2, $3)
+                RETURNING 
+                    user_idx AS userIdx`,
+                [nickname, email, isAdmin]
+            );
+            if (userRows.length === 0) {
+                await poolClient.query('ROLLBACK');
+                console.log('트랜젝션');
+                // throw new InternalServerException('회원가입 실패');
+                return res.status(204).send({ message: '회원가입 실패' });
+            }
+
+            const userIdx = userRows[0].userIdx;
+            const { rows: accountRows } = await poolClient.query<{
+                userIdx: number;
+            }>(
+                `INSERT INTO
+                    account_local (
+                        user_idx,
+                        id,
+                        pw
+                        )
+                VALUES ($1, $2, $3)
+                RETURNING 
+                    user_idx AS userIdx`,
+                [userIdx, id, hashedPw]
+            );
+            if (accountRows.length === 0) {
+                await poolClient.query('ROLLBACK');
+                console.log('트랜젝션');
+                // throw new InternalServerException('회원가입 실패');
+                return res.status(204).send({ message: '회원가입 실패' });
+            }
+
+            await poolClient.query('COMMIT');
+            return res.status(200).send('회원가입 성공');
+        } catch (err) {
+            await poolClient.query('ROLLBACK');
+            next(err);
+        } finally {
+            if (poolClient) poolClient.release();
+        }
+    }
+);
+
+//아이디 중복 확인
+router.post(
+    '/id/check',
+    body('id')
+        .trim()
+        .isLength({ min: 4, max: 20 })
+        .withMessage('아이디는 4자 이상 20자 이하로 해주세요.'),
+    handleValidationErrors,
+    async (req, res, next) => {
+        try {
+            const id: string = req.body.id;
+            const { rows: idRows } = await pool.query<{
+                userIdx: number;
+            }>(
+                `SELECT
+                    al.user_idx
+                FROM
+                    account_local al
+                JOIN
+                    "user" u
+                ON
+                    al.user_idx = u.idx
+                WHERE
+                    al.id = $1
+                AND 
+                    u.deleted_at IS NULL
+                `,
+                [id]
+            );
+            if (idRows.length > 0) {
+                throw new ConflictException('아이디가 이미 존재합니다.');
+            }
+            return res.status(200).send('사용 가능한 아이디입니다.');
+        } catch (err) {
+            next(err);
+        }
+    }
+);
+
+//닉네임 중복 확인
+router.post(
+    '/nickname/check',
+    body('nickname')
+        .trim()
+        .isLength({ min: 2, max: 20 })
+        .withMessage('닉네임은 2자 이상 20자 이하로 해주세요.'),
+    handleValidationErrors,
+    async (req, res, next) => {
+        try {
+            const nickname: string = req.body.nickname;
+
+            const { rows: nicknameRows } = await pool.query<{
+                userIdx: string;
+            }>(
                 `SELECT
                     * 
                 FROM
@@ -139,68 +292,140 @@ router.post(
                     deleted_at IS NULL`,
                 [nickname]
             );
-            if (nicknameResults.rows.length > 0) {
+            if (nicknameRows.length > 0) {
                 throw new ConflictException('닉네임이 이미 존재합니다.');
             }
-
-            //이메일 중복 확인
-            const emailResults = await poolClient.query(
-                `SELECT
-                    * 
-                FROM
-                    "user" 
-                WHERE 
-                    email = $1 
-                AND 
-                    deleted_at IS NULL`,
-                [email]
-            );
-            if (emailResults.rows.length > 0) {
-                throw new ConflictException('이메일이 이미 존재합니다.');
-            }
-
-            const hashedPw = await hashPassword(pw); // 비밀번호 해싱
-            const userResult = await poolClient.query(
-                `INSERT INTO
-                    "user"(
-                        nickname,
-                        email,
-                        is_admin
-                        ) 
-                VALUES ($1, $2, $3)
-                RETURNING idx`,
-                [nickname, email, isAdmin]
-            );
-            if (userResult.rows.length === 0) {
-                await poolClient.query('ROLLBACK');
-                console.log('트랜젝션');
-                return res.status(204).send({ message: '회원가입 실패' });
-            }
-            const userIdx = userResult.rows[0].idx;
-            const accountResult = await poolClient.query(
-                `INSERT INTO
-                    account_local (
-                        user_idx,
-                        id, 
-                        pw
-                        )
-                VALUES ($1, $2, $3)
-                RETURNING *`,
-                [userIdx, id, hashedPw]
-            );
-            if (accountResult.rows.length === 0) {
-                await poolClient.query('ROLLBACK');
-                console.log('트랜젝션');
-                return res.status(204).send({ message: '회원가입 실패' });
-            }
-            await poolClient.query('COMMIT');
-            return res.status(200).send('회원가입 성공');
-        } catch (e) {
-            await poolClient.query('ROLLBACK');
-            next(e);
-        } finally {
-            if (poolClient) poolClient.release();
+            return res.status(200).send('사용 가능한 닉네임입니다.');
+        } catch (err) {
+            next(err);
         }
     }
 );
+
+//이메일 중복 확인/인증
+router.post(
+    '/email/check',
+    body('email').trim().isEmail().withMessage('유효하지 않은 이메일 형식입니다.'),
+    handleValidationErrors,
+    async (req, res, next) => {
+        try {
+            const email: string = req.body.email;
+            const { rows: emailRows } = await pool.query<{
+                userIdx: string;
+            }>(
+                `SELECT
+                    *
+                FROM
+                    "user"
+                WHERE
+                    email = $1
+                AND
+                    deleted_at IS NULL`,
+                [email]
+            );
+            if (emailRows.length > 0) {
+                throw new ConflictException('이메일이 이미 존재합니다.');
+            } else {
+                const verificationCode = generateVerificationCode();
+                const { rows: codeRows } = await pool.query<{
+                    userIdx: number;
+                }>(
+                    `INSERT INTO
+                        email_verification (
+                            email,
+                            code
+                            )
+                    VALUES
+                        ($1, $2)
+                    RETURNING 
+                        user_idx AS userIdx`,
+                    [email, verificationCode]
+                );
+                if (codeRows.length == 0) {
+                    throw new InternalServerException('회원가입 실패');
+                }
+                await sendVerificationEmail(email, verificationCode);
+                await deleteCode(pool);
+                return res.status(200).send('인증 코드가 발송되었습니다.');
+            }
+        } catch (e) {
+            next(e);
+        }
+    }
+);
+
+//이메일 인증 확인
+router.post(
+    '/email/auth',
+    body('code')
+        .trim()
+        .isLength({ min: 5, max: 5 })
+        .withMessage('인증코드는 5자리 숫자로 해주세요.')
+        .isNumeric()
+        .withMessage('인증코드는 숫자로만 구성되어야 합니다.'),
+    body('email').trim().isEmail().withMessage('유효하지 않은 이메일 형식입니다.'),
+    handleValidationErrors,
+    async (req, res, next) => {
+        try {
+            const { email, code } = req.body as {
+                email: string;
+                code: string;
+            };
+            const { rows: authRows } = await pool.query<{
+                idx: number;
+            }>(
+                `SELECT
+                    idx
+                FROM
+                    email_verification
+                WHERE
+                    email = $1
+                AND
+                    code = $2`,
+                [email, code]
+            );
+            if (authRows.length == 0) {
+                throw new ForbiddenException('잘못된 인증 코드입니다.');
+            }
+            return res.status(200).send('이메일 인증이 완료되었습니다.');
+        } catch (e) {
+            next(e);
+        }
+    }
+);
+
+// 아이디 찾기
+router.get(
+    '/id',
+    query('email').trim().isEmail().withMessage('유효하지 않은 이메일 형식입니다.'),
+    handleValidationErrors,
+    async (req, res, next) => {
+        const email: string = req.query.email;
+        try {
+            const { rows: idRows } = await pool.query(
+                `SELECT 
+                    al.id 
+                FROM 
+                    account_local al
+                JOIN 
+                    "user" u 
+                ON 
+                    a.user_idx = u.idx
+                WHERE 
+                    u.email = $1
+                AND 
+                    u.deleted_at IS NULL`,
+                [email]
+            );
+            if (idRows.length === 0) {
+                throw new NotFoundException('일치하는 사용자가 없습니다.');
+            }
+            const foundId = idRows[0].id;
+            return res.status(200).send({ id: foundId });
+        } catch (err) {
+            next(err);
+        }
+    }
+);
+
 export default router;
