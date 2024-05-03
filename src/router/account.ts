@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { body } from 'express-validator';
+import { body, query } from 'express-validator';
 import { handleValidationErrors } from '../middleware/validator';
 import NotFoundException from '../exception/notFoundException';
 import ConflictException from '../exception/conflictException';
@@ -393,4 +393,39 @@ router.post(
         }
     }
 );
+
+// 아이디 찾기
+router.get(
+    '/id',
+    query('email').trim().isEmail().withMessage('유효하지 않은 이메일 형식입니다.'),
+    handleValidationErrors,
+    async (req, res, next) => {
+        const email: string = req.query.email;
+        try {
+            const { rows: idRows } = await pool.query(
+                `SELECT 
+                    al.id 
+                FROM 
+                    account_local al
+                JOIN 
+                    "user" u 
+                ON 
+                    a.user_idx = u.idx
+                WHERE 
+                    u.email = $1
+                AND 
+                    u.deleted_at IS NULL`,
+                [email]
+            );
+            if (idRows.length === 0) {
+                throw new NotFoundException('일치하는 사용자가 없습니다.');
+            }
+            const foundId = idRows[0].id;
+            return res.status(200).send({ id: foundId });
+        } catch (err) {
+            next(err);
+        }
+    }
+);
+
 export default router;
