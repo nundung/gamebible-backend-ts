@@ -81,7 +81,7 @@ router.post(
     }
 );
 
-// 회원가입
+//회원가입
 router.post(
     '/',
     body('id')
@@ -171,7 +171,7 @@ router.post(
 
             const hashedPw = await hashPassword(pw); // 비밀번호 해싱
             const { rows: userRows } = await poolClient.query<{
-                idx: number;
+                userIdx: number;
             }>(
                 `INSERT INTO
                     "user"(
@@ -180,7 +180,8 @@ router.post(
                         is_admin
                         ) 
                 VALUES ($1, $2, $3)
-                RETURNING idx`,
+                RETURNING 
+                    user_idx AS userIdx`,
                 [nickname, email, isAdmin]
             );
             if (userRows.length === 0) {
@@ -190,8 +191,10 @@ router.post(
                 return res.status(204).send({ message: '회원가입 실패' });
             }
 
-            const userIdx = userRows[0].idx;
-            const { rows: accountRows } = await poolClient.query(
+            const userIdx = userRows[0].userIdx;
+            const { rows: accountRows } = await poolClient.query<{
+                userIdx: number;
+            }>(
                 `INSERT INTO
                     account_local (
                         user_idx,
@@ -199,16 +202,17 @@ router.post(
                         pw
                         )
                 VALUES ($1, $2, $3)
-                RETURNING *`,
+                RETURNING 
+                    user_idx AS userIdx`,
                 [userIdx, id, hashedPw]
             );
-
             if (accountRows.length === 0) {
                 await poolClient.query('ROLLBACK');
                 console.log('트랜젝션');
                 // throw new InternalServerException('회원가입 실패');
                 return res.status(204).send({ message: '회원가입 실패' });
             }
+
             await poolClient.query('COMMIT');
             return res.status(200).send('회원가입 성공');
         } catch (err) {
