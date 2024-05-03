@@ -253,8 +253,43 @@ router.post(
                 throw new ConflictException('아이디가 이미 존재합니다.');
             }
             return res.status(200).send('사용 가능한 아이디입니다.');
-        } catch (e) {
-            next(e);
+        } catch (err) {
+            next(err);
+        }
+    }
+);
+
+//닉네임 중복 확인
+router.post(
+    '/nickname/check',
+    body('nickname')
+        .trim()
+        .isLength({ min: 2, max: 20 })
+        .withMessage('닉네임은 2자 이상 20자 이하로 해주세요.'),
+    handleValidationErrors,
+    async (req, res, next) => {
+        try {
+            const nickname: string = req.body.nickname;
+
+            const { rows: nicknameRows } = await pool.query<{
+                userIdx: string;
+            }>(
+                `SELECT
+                    * 
+                FROM
+                    "user" 
+                WHERE 
+                    nickname = $1 
+                AND 
+                    deleted_at IS NULL`,
+                [nickname]
+            );
+            if (nicknameRows.length > 0) {
+                throw new ConflictException('닉네임이 이미 존재합니다.');
+            }
+            return res.status(200).send('사용 가능한 닉네임입니다.');
+        } catch (err) {
+            next(err);
         }
     }
 );
