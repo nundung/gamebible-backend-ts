@@ -1,9 +1,6 @@
 import Exception from './exception';
 
 class NotFoundException extends Exception {
-    message: string;
-    err: any;
-
     constructor(message: string, err: any = null) {
         super(404, message, err);
         this.message = message;
