@@ -1,11 +1,11 @@
 import Exception from './exception';
 
-class NotFoundException extends Exception {
+class BadRequestException extends Exception {
     constructor(message: string, err: any = null) {
-        super(404, message, err);
+        super(400, message, err);
         this.message = message;
         this.err = err;
     }
 }
 
-export default NotFoundException;
+export default BadRequestException;

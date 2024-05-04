@@ -13,6 +13,10 @@ import generateVerificationCode from '../module/generateVerificationCode';
 import sendVerificationEmail from '../module/sendVerificationEmail';
 import deleteCode from '../module/deleteEmail';
 import ForbiddenException from '../exception/forbiddenException';
+import changePwEmail from '../module/sendChangePwEmail';
+import checkLogin from '../middleware/checkLogin';
+import BadRequestException from '../exception/badRequestException';
+import UnauthorizedException from '../exception/unauthorizedException';
 
 require('dotenv').config();
 const router = Router();
@@ -33,8 +37,6 @@ router.post(
     async (req, res, next) => {
         const { id, pw } = req.body as { id: string; pw: string };
         try {
-            // 사용자 정보 조회 (비밀번호는 해시된 상태로 저장되어 있음)
-            // 제네릭: 타입을 동적으로 할당함. 그런 제네릭을 써야할 때가 있음
             const { rows: userRows } = await pool.query<{
                 pw: string;
                 userIdx: number;
@@ -117,7 +119,7 @@ router.post(
 
             //아이디 중복 확인
             const { rows: idRows } = await poolClient.query<{
-                userIdx: string;
+                idx: string;
             }>(
                 `SELECT
                     al.user_idx AS "userIdx"
@@ -139,10 +141,10 @@ router.post(
 
             //닉네임 중복 확인
             const { rows: nicknameRows } = await poolClient.query<{
-                userIdx: number;
+                idx: number;
             }>(
                 `SELECT
-                    user_idx AS "userIdx"
+                    idx
                 FROM
                     "user"
                 WHERE 
@@ -159,13 +161,13 @@ router.post(
             const { rows: emailRows } = await poolClient.query<{
                 userIdx: number;
             }>(
-                `SELECT 
-                    user_idx AS "userIdx"
+                `SELECT
+                    idx
                 FROM
-                    "user" 
-                WHERE 
-                    email = $1 
-                AND 
+                    "user"
+                WHERE
+                    email = $1
+                AND
                     deleted_at IS NULL`,
                 [email]
             );
@@ -175,7 +177,7 @@ router.post(
 
             const hashedPw = await hashPassword(pw); // 비밀번호 해싱
             const { rows: userRows } = await poolClient.query<{
-                userIdx: number;
+                idx: number;
             }>(
                 `INSERT INTO
                     "user"(
@@ -185,17 +187,16 @@ router.post(
                         ) 
                 VALUES ($1, $2, $3)
                 RETURNING 
-                    user_idx AS userIdx`,
+                    idx`,
                 [nickname, email, isAdmin]
             );
             if (userRows.length === 0) {
                 await poolClient.query('ROLLBACK');
                 console.log('트랜젝션');
-                // throw new InternalServerException('회원가입 실패');
-                return res.status(204).send({ message: '회원가입 실패' });
+                throw new InternalServerException('회원가입 실패');
             }
 
-            const userIdx = userRows[0].userIdx;
+            const userIdx = userRows[0].idx;
             const { rows: accountRows } = await poolClient.query<{
                 userIdx: number;
             }>(
@@ -213,8 +214,7 @@ router.post(
             if (accountRows.length === 0) {
                 await poolClient.query('ROLLBACK');
                 console.log('트랜젝션');
-                // throw new InternalServerException('회원가입 실패');
-                return res.status(204).send({ message: '회원가입 실패' });
+                throw new InternalServerException('회원가입 실패');
             }
 
             await poolClient.query('COMMIT');
@@ -311,10 +311,10 @@ router.post(
         try {
             const email: string = req.body.email;
             const { rows: emailRows } = await pool.query<{
-                userIdx: string;
+                idx: number;
             }>(
                 `SELECT
-                    *
+                    idx
                 FROM
                     "user"
                 WHERE
@@ -328,7 +328,7 @@ router.post(
             } else {
                 const verificationCode = generateVerificationCode();
                 const { rows: codeRows } = await pool.query<{
-                    userIdx: number;
+                    idx: number;
                 }>(
                     `INSERT INTO
                         email_verification (
@@ -338,7 +338,7 @@ router.post(
                     VALUES
                         ($1, $2)
                     RETURNING 
-                        user_idx AS userIdx`,
+                        idx`,
                     [email, verificationCode]
                 );
                 if (codeRows.length == 0) {
@@ -394,7 +394,7 @@ router.post(
     }
 );
 
-// 아이디 찾기
+//아이디 찾기
 router.get(
     '/id',
     query('email').trim().isEmail().withMessage('유효하지 않은 이메일 형식입니다.'),
@@ -402,18 +402,20 @@ router.get(
     async (req, res, next) => {
         const email: string = req.query.email;
         try {
-            const { rows: idRows } = await pool.query(
-                `SELECT 
-                    al.id 
-                FROM 
+            const { rows: idRows } = await pool.query<{
+                id: string;
+            }>(
+                `SELECT
+                    al.id
+                FROM
                     account_local al
-                JOIN 
-                    "user" u 
-                ON 
-                    a.user_idx = u.idx
-                WHERE 
+                JOIN
+                    "user" u
+                ON
+                    al.user_idx = u.idx
+                WHERE
                     u.email = $1
-                AND 
+                AND
                     u.deleted_at IS NULL`,
                 [email]
             );
@@ -427,5 +429,94 @@ router.get(
         }
     }
 );
+
+//비밀번호 찾기(이메일 전송)
+router.post(
+    '/pw/email',
+    body('email').trim().isEmail().withMessage('유효하지 않은 이메일 형식입니다.'),
+    handleValidationErrors,
+    async (req, res, next) => {
+        const email: string = req.body.email;
+        try {
+            const emailToken = await changePwEmail(email);
+            return res.status(200).send({ token: emailToken });
+        } catch (err) {
+            next(err);
+        }
+    }
+);
+
+//비밀번호 변경
+router.put(
+    '/pw',
+    body('pw')
+        .trim()
+        .isLength({ min: 8, max: 20 })
+        .withMessage('비밀번호는 8자 이상 20자 이하이어야 합니다.'),
+    handleValidationErrors,
+    checkLogin,
+    async (req, res, next) => {
+        const pw: string = req.body.pw;
+        try {
+            const userIdx: number = req.decoded.userIdx;
+            if (!userIdx) {
+                throw new UnauthorizedException('로그인 정보 없음');
+            }
+            const hashedPw = await hashPassword(pw); // 비밀번호 해싱
+            const { rows: deletePwRows } = await pool.query<{
+                pw: string;
+            }>(
+                `UPDATE
+                    account_local
+                SET
+                    pw = $2
+                WHERE
+                    user_idx = $1
+                RETURNING
+                    pw`,
+                [userIdx, hashedPw]
+            );
+            if (deletePwRows.length === 0) {
+                throw new BadRequestException('비밀번호 변경 실패');
+            }
+            return res.status(200).send('비밀번호 변경 성공');
+        } catch (err) {
+            next(err);
+        }
+    }
+);
+
+// 내 정보 보기
+router.get('/info', checkLogin, async (req, res, next) => {
+    try {
+        const userIdx: number = req.decoded.userIdx;
+        if (!userIdx) {
+            throw new UnauthorizedException('로그인 정보 없음');
+        }
+        const { rows: userInfoRows } = await pool.query(
+            `SELECT
+                u.*, al.*, ak.*
+            FROM
+                "user" u
+            LEFT JOIN
+                account_local al ON u.idx = al.user_idx
+            LEFT JOIN
+                account_kakao ak ON u.idx = ak.user_idx
+            WHERE
+                u.idx = $1`,
+            [userIdx]
+        );
+        if (userInfoRows.length === 0) {
+            throw new ForbiddenException('내 정보 보기 실패');
+        }
+
+        // 첫 번째 조회 결과 가져오기
+        const user = userInfoRows[0];
+        // 응답 전송
+        res.status(200).send({ data: user });
+    } catch (err) {
+        next(err);
+    }
+});
 
 export default router;

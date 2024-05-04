@@ -1,7 +1,7 @@
 import bcrypt = require('bcrypt');
 import InternalServerException from '../exception/internalServerException';
 
-const hashPassword = async (password) => {
+const hashPassword = async (password: string) => {
     console.log(password);
     const saltRounds = 10;
     try {
