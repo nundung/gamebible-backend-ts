@@ -13,6 +13,7 @@ import generateVerificationCode from '../module/generateVerificationCode';
 import sendVerificationEmail from '../module/sendVerificationEmail';
 import deleteCode from '../module/deleteEmail';
 import ForbiddenException from '../exception/forbiddenException';
+import changePwEmail from '../module/sendChangePwEmail';
 
 require('dotenv').config();
 const router = Router();
@@ -422,6 +423,22 @@ router.get(
             }
             const foundId = idRows[0].id;
             return res.status(200).send({ id: foundId });
+        } catch (err) {
+            next(err);
+        }
+    }
+);
+
+//비밀번호 찾기(이메일 전송)
+router.post(
+    '/pw/email',
+    body('email').trim().isEmail().withMessage('유효하지 않은 이메일 형식입니다.'),
+    handleValidationErrors,
+    async (req, res, next) => {
+        const email: string = req.body.email;
+        try {
+            const emailToken = await changePwEmail(email);
+            return res.status(200).send({ token: emailToken });
         } catch (err) {
             next(err);
         }
