@@ -486,4 +486,37 @@ router.put(
     }
 );
 
+// 내 정보 보기
+router.get('/info', checkLogin, async (req, res, next) => {
+    try {
+        const userIdx: number = req.decoded.userIdx;
+        if (!userIdx) {
+            throw new UnauthorizedException('로그인 정보 없음');
+        }
+        const { rows: userInfoRows } = await pool.query(
+            `SELECT
+                u.*, al.*, ak.*
+            FROM
+                "user" u
+            LEFT JOIN
+                account_local al ON u.idx = al.user_idx
+            LEFT JOIN
+                account_kakao ak ON u.idx = ak.user_idx
+            WHERE
+                u.idx = $1`,
+            [userIdx]
+        );
+        if (userInfoRows.length === 0) {
+            throw new ForbiddenException('내 정보 보기 실패');
+        }
+
+        // 첫 번째 조회 결과 가져오기
+        const user = userInfoRows[0];
+        // 응답 전송
+        res.status(200).send({ data: user });
+    } catch (err) {
+        next(err);
+    }
+});
+
 export default router;
