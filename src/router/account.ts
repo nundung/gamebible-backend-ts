@@ -16,6 +16,7 @@ import ForbiddenException from '../exception/forbiddenException';
 import changePwEmail from '../module/sendChangePwEmail';
 import checkLogin from '../middleware/checkLogin';
 import BadRequestException from '../exception/badRequestException';
+import UnauthorizedException from '../exception/unauthorizedException';
 
 require('dotenv').config();
 const router = Router();
@@ -36,8 +37,6 @@ router.post(
     async (req, res, next) => {
         const { id, pw } = req.body as { id: string; pw: string };
         try {
-            // 사용자 정보 조회 (비밀번호는 해시된 상태로 저장되어 있음)
-            // 제네릭: 타입을 동적으로 할당함. 그런 제네릭을 써야할 때가 있음
             const { rows: userRows } = await pool.query<{
                 pw: string;
                 userIdx: number;
@@ -458,8 +457,11 @@ router.put(
     checkLogin,
     async (req, res, next) => {
         const pw: string = req.body.pw;
-        const userIdx: number = req.decoded.userIdx;
         try {
+            const userIdx: number = req.decoded.userIdx;
+            if (!userIdx) {
+                throw new UnauthorizedException('로그인 정보 없음');
+            }
             const hashedPw = await hashPassword(pw); // 비밀번호 해싱
             const { rows: deletePwRows } = await pool.query<{
                 pw: string;
