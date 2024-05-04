@@ -138,7 +138,6 @@ router.post(
             if (idRows.length > 0) {
                 throw new ConflictException('아이디가 이미 존재합니다.');
             }
-            console.log('실행1');
 
             //닉네임 중복 확인
             const { rows: nicknameRows } = await poolClient.query<{
@@ -194,11 +193,10 @@ router.post(
             if (userRows.length === 0) {
                 await poolClient.query('ROLLBACK');
                 console.log('트랜젝션');
-                // throw new InternalServerException('회원가입 실패');
-                return res.status(204).send({ message: '회원가입 실패' });
+                throw new InternalServerException('회원가입 실패');
             }
 
-            const userIdx = userRows[0].userIdx;
+            const userIdx = userRows[0].idx;
             const { rows: accountRows } = await poolClient.query<{
                 userIdx: number;
             }>(
@@ -216,8 +214,7 @@ router.post(
             if (accountRows.length === 0) {
                 await poolClient.query('ROLLBACK');
                 console.log('트랜젝션');
-                // throw new InternalServerException('회원가입 실패');
-                return res.status(204).send({ message: '회원가입 실패' });
+                throw new InternalServerException('회원가입 실패');
             }
 
             await poolClient.query('COMMIT');
@@ -314,10 +311,10 @@ router.post(
         try {
             const email: string = req.body.email;
             const { rows: emailRows } = await pool.query<{
-                userIdx: string;
+                idx: number;
             }>(
                 `SELECT
-                    *
+                    idx
                 FROM
                     "user"
                 WHERE
@@ -331,7 +328,7 @@ router.post(
             } else {
                 const verificationCode = generateVerificationCode();
                 const { rows: codeRows } = await pool.query<{
-                    userIdx: number;
+                    idx: number;
                 }>(
                     `INSERT INTO
                         email_verification (
@@ -341,7 +338,7 @@ router.post(
                     VALUES
                         ($1, $2)
                     RETURNING 
-                        user_idx AS userIdx`,
+                        idx`,
                     [email, verificationCode]
                 );
                 if (codeRows.length == 0) {
@@ -397,7 +394,7 @@ router.post(
     }
 );
 
-// 아이디 찾기
+//아이디 찾기
 router.get(
     '/id',
     query('email').trim().isEmail().withMessage('유효하지 않은 이메일 형식입니다.'),
@@ -415,7 +412,7 @@ router.get(
                 JOIN
                     "user" u
                 ON
-                    a.user_idx = u.idx
+                    al.user_idx = u.idx
                 WHERE
                     u.email = $1
                 AND
