@@ -15,6 +15,7 @@ import deleteCode from '../module/deleteEmail';
 import ForbiddenException from '../exception/forbiddenException';
 import changePwEmail from '../module/sendChangePwEmail';
 import checkLogin from '../middleware/checkLogin';
+import BadRequestException from '../exception/badRequestException';
 
 require('dotenv').config();
 const router = Router();
@@ -440,6 +441,43 @@ router.post(
         try {
             const emailToken = await changePwEmail(email);
             return res.status(200).send({ token: emailToken });
+        } catch (err) {
+            next(err);
+        }
+    }
+);
+
+//비밀번호 변경
+router.put(
+    '/pw',
+    body('pw')
+        .trim()
+        .isLength({ min: 8, max: 20 })
+        .withMessage('비밀번호는 8자 이상 20자 이하이어야 합니다.'),
+    handleValidationErrors,
+    checkLogin,
+    async (req, res, next) => {
+        const pw: string = req.body.pw;
+        const userIdx: number = req.decoded.userIdx;
+        try {
+            const hashedPw = await hashPassword(pw); // 비밀번호 해싱
+            const { rows: deletePwRows } = await pool.query<{
+                pw: string;
+            }>(
+                `UPDATE
+                    account_local
+                SET
+                    pw = $2
+                WHERE
+                    user_idx = $1
+                RETURNING
+                    pw`,
+                [userIdx, hashedPw]
+            );
+            if (deletePwRows.length === 0) {
+                throw new BadRequestException('비밀번호 변경 실패');
+            }
+            return res.status(200).send('비밀번호 변경 성공');
         } catch (err) {
             next(err);
         }
