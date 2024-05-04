@@ -14,6 +14,7 @@ import sendVerificationEmail from '../module/sendVerificationEmail';
 import deleteCode from '../module/deleteEmail';
 import ForbiddenException from '../exception/forbiddenException';
 import changePwEmail from '../module/sendChangePwEmail';
+import checkLogin from '../middleware/checkLogin';
 
 require('dotenv').config();
 const router = Router();
@@ -118,7 +119,7 @@ router.post(
 
             //아이디 중복 확인
             const { rows: idRows } = await poolClient.query<{
-                userIdx: string;
+                idx: string;
             }>(
                 `SELECT
                     al.user_idx AS "userIdx"
@@ -137,13 +138,14 @@ router.post(
             if (idRows.length > 0) {
                 throw new ConflictException('아이디가 이미 존재합니다.');
             }
+            console.log('실행1');
 
             //닉네임 중복 확인
             const { rows: nicknameRows } = await poolClient.query<{
-                userIdx: number;
+                idx: number;
             }>(
                 `SELECT
-                    user_idx AS "userIdx"
+                    idx
                 FROM
                     "user"
                 WHERE 
@@ -160,13 +162,13 @@ router.post(
             const { rows: emailRows } = await poolClient.query<{
                 userIdx: number;
             }>(
-                `SELECT 
-                    user_idx AS "userIdx"
+                `SELECT
+                    idx
                 FROM
-                    "user" 
-                WHERE 
-                    email = $1 
-                AND 
+                    "user"
+                WHERE
+                    email = $1
+                AND
                     deleted_at IS NULL`,
                 [email]
             );
@@ -176,7 +178,7 @@ router.post(
 
             const hashedPw = await hashPassword(pw); // 비밀번호 해싱
             const { rows: userRows } = await poolClient.query<{
-                userIdx: number;
+                idx: number;
             }>(
                 `INSERT INTO
                     "user"(
@@ -186,7 +188,7 @@ router.post(
                         ) 
                 VALUES ($1, $2, $3)
                 RETURNING 
-                    user_idx AS userIdx`,
+                    idx`,
                 [nickname, email, isAdmin]
             );
             if (userRows.length === 0) {
@@ -403,18 +405,20 @@ router.get(
     async (req, res, next) => {
         const email: string = req.query.email;
         try {
-            const { rows: idRows } = await pool.query(
-                `SELECT 
-                    al.id 
-                FROM 
+            const { rows: idRows } = await pool.query<{
+                id: string;
+            }>(
+                `SELECT
+                    al.id
+                FROM
                     account_local al
-                JOIN 
-                    "user" u 
-                ON 
+                JOIN
+                    "user" u
+                ON
                     a.user_idx = u.idx
-                WHERE 
+                WHERE
                     u.email = $1
-                AND 
+                AND
                     u.deleted_at IS NULL`,
                 [email]
             );
