@@ -72,7 +72,7 @@ router.post(
             // 비밀번호가 일치하면 토큰 생성
             const token = jwt.sign(
                 {
-                    userIdx: user.userIdx,
+                    idx: user.userIdx,
                     isAdmin: user.isAdmin,
                 },
                 process.env.SECRET_KEY || '',
@@ -458,8 +458,8 @@ router.put(
     async (req, res, next) => {
         const pw: string = req.body.pw;
         try {
-            const userIdx: number = req.decoded.userIdx;
-            if (!userIdx) {
+            const loginUser = req.decoded;
+            if (!loginUser.idx) {
                 throw new UnauthorizedException('로그인 정보 없음');
             }
             const hashedPw = await hashPassword(pw); // 비밀번호 해싱
@@ -474,7 +474,7 @@ router.put(
                     user_idx = $1
                 RETURNING
                     pw`,
-                [userIdx, hashedPw]
+                [loginUser.idx, hashedPw]
             );
             if (deletePwRows.length === 0) {
                 throw new BadRequestException('비밀번호 변경 실패');
@@ -489,22 +489,43 @@ router.put(
 // 내 정보 보기
 router.get('/info', checkLogin, async (req, res, next) => {
     try {
-        const userIdx: number = req.decoded.userIdx;
-        if (!userIdx) {
+        const loginUser = req.decoded;
+        if (!loginUser.idx) {
             throw new UnauthorizedException('로그인 정보 없음');
         }
-        const { rows: userInfoRows } = await pool.query(
+        const { rows: userInfoRows } = await pool.query<{
+            idx: number;
+            isAdmin: boolean;
+            id: string;
+            nickname: string;
+            email: string;
+            created_at: Date;
+            deleted_at: Date;
+            kakaoKey: number;
+        }>(
             `SELECT
-                u.*, al.*, ak.*
+                u.idx,
+                u.is_admin AS "isAdmin",
+                u.nickname,
+                u.email,
+                u.created_at,
+                u.deleted_at,
+                al.user_idx,
+                al.id,
+                ak.kakao_key AS "kakaoKey"
             FROM
                 "user" u
             LEFT JOIN
-                account_local al ON u.idx = al.user_idx
+                account_local al 
+            ON 
+                u.idx = al.user_idx
             LEFT JOIN
-                account_kakao ak ON u.idx = ak.user_idx
+                account_kakao ak
+            ON 
+                u.idx = ak.user_idx
             WHERE
                 u.idx = $1`,
-            [userIdx]
+            [loginUser.idx]
         );
         if (userInfoRows.length === 0) {
             throw new ForbiddenException('내 정보 보기 실패');
@@ -519,4 +540,105 @@ router.get('/info', checkLogin, async (req, res, next) => {
     }
 });
 
+// 내 정보 수정
+router.put(
+    '/info',
+    checkLogin,
+    body('email').trim().isEmail().withMessage('유효하지 않은 이메일 형식입니다.'),
+    body('nickname')
+        .trim()
+        .isLength({ min: 2, max: 20 })
+        .withMessage('닉네임은 2자 이상 20자 이하로 해주세요.'),
+    handleValidationErrors,
+    async (req, res, next) => {
+        const loginUser = req.decoded;
+        const { nickname, email } = req.body as {
+            nickname: string;
+            email: string;
+        };
+        try {
+            //저장된 정보 불러오기
+            const { rows: userInfoRows } = await pool.query<{
+                userNickname: string;
+                userEmail: string;
+            }>(
+                `SELECT
+                    nickname AS "userNickname",
+                    email AS "userEmail"
+                FROM
+                    "user"
+                WHERE
+                    idx = $1
+                AND
+                    deleted_at IS NULL`,
+                [loginUser.idx]
+            );
+            if (userInfoRows.length === 0) {
+                throw new NotFoundException('사용자 정보 조회 실패');
+            }
+            //닉네임 중복 확인
+            const { userNickname, userEmail } = userInfoRows[0];
+            const { rows: nicknameRows } = await pool.query<{
+                idx: string;
+            }>(
+                `SELECT
+                    idx
+                FROM
+                    "user" 
+                WHERE 
+                    nickname = $1
+                AND 
+                    nickname <> $2 
+                AND
+                    deleted_at IS NULL`,
+                [nickname, userNickname]
+            );
+            if (nicknameRows.length > 0) {
+                throw new ConflictException('닉네임이 이미 존재합니다.');
+            }
+
+            //이메일 중복 확인
+            const { rows: emailRows } = await pool.query<{
+                idx: number;
+            }>(
+                `SELECT
+                    idx
+                FROM
+                    "user"
+                WHERE
+                    email = $1
+                AND
+                    email <> $2
+                AND
+                    deleted_at IS NULL`,
+                [email, userEmail]
+            );
+            if (emailRows.length > 0) {
+                throw new ConflictException('이메일이 이미 존재합니다.');
+            }
+
+            const { rows: userInfoChangeRows } = await pool.query<{
+                idx: number;
+            }>(
+                `UPDATE
+                    "user"
+                SET
+                    nickname = $2,
+                    email = $3
+                WHERE
+                    idx = $1
+                RETURNING
+                    nickname, email`,
+                [loginUser.idx, nickname, email]
+            );
+            if (userInfoChangeRows.length === 0) {
+                throw new ForbiddenException('내 정보 수정 실패');
+            }
+
+            return res.status(200).send({ message: '내 정보 수정 성공' });
+        } catch (err) {
+            next(err);
+        }
+    }
+);
 export default router;

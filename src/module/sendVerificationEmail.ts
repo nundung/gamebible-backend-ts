@@ -1,6 +1,6 @@
 import nodemailer from 'nodemailer';
 
-function sendVerificationEmail(email: string, code: string) {
+const sendVerificationEmail = async (email: string, code: string) => {
     let transporter = nodemailer.createTransport({
         service: 'naver',
         auth: {
@@ -23,6 +23,6 @@ function sendVerificationEmail(email: string, code: string) {
             console.log('이메일 전송 성공: ' + info.response);
         }
     });
-}
+};
 
 export default sendVerificationEmail;

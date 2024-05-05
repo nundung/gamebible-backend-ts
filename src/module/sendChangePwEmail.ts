@@ -1,8 +1,9 @@
 import nodemailer from 'nodemailer';
 import pool from '../config/postgres.js';
 import jwt from 'jsonwebtoken';
+import NotFoundException from '../exception/notFoundException.js';
 
-async function changePwEmail(email) {
+const changePwEmail = async (email: string) => {
     let transporter = nodemailer.createTransport({
         service: 'naver',
         auth: {
@@ -10,27 +11,26 @@ async function changePwEmail(email) {
             pass: process.env.EMAIL_PASS,
         },
     });
-
-    const userQuery = `
-    SELECT 
-        idx
-    FROM
-        "user"
-    WHERE
-        email = $1
-    AND
-        deleted_at IS NULL`;
-    const userResult = await pool.query(userQuery, [email]);
-
-    if (userResult.rows.length === 0) {
-        throw new Error('사용자를 찾을 수 없습니다.');
+    const { rows: userRows } = await pool.query(
+        `SELECT 
+            idx
+        FROM
+            "user"
+        WHERE
+            email = $1
+        AND
+            deleted_at IS NULL`,
+        [email]
+    );
+    if (userRows.length === 0) {
+        throw new NotFoundException('사용자 정보 조회 실패');
     }
 
-    const userIdx = userResult.rows[0].idx;
+    const idx = userRows[0].idx;
 
     const token = jwt.sign(
         {
-            idx: userIdx,
+            idx: idx,
         },
         process.env.SECRET_KEY,
         {
@@ -47,14 +47,14 @@ async function changePwEmail(email) {
         html: `<p>비밀번호를 변경하려면 아래 링크를 클릭하세요:</p><a href="${resetLink}">비밀번호 변경하기</a>`,
     };
 
-    transporter.sendMail(mailOptions, (error, info) => {
-        if (error) {
-            console.error('이메일 전송 실패: ', error);
+    transporter.sendMail(mailOptions, (err, info) => {
+        if (err) {
+            console.error('이메일 전송 실패: ', err);
         } else {
             console.log('이메일 전송 성공: ' + info.response);
         }
     });
     return token;
-}
+};
 
 export default changePwEmail;

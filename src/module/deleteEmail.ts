@@ -1,6 +1,6 @@
-import pool from '../config/postgres';
+import { Pool } from 'pg';
 
-async function deleteExpiredCodes(pool) {
+const deleteExpiredCodes = async (pool: Pool) => {
     try {
         const { rowCount: DeleteCount } = await pool.query(
             `DELETE
@@ -13,9 +13,9 @@ async function deleteExpiredCodes(pool) {
     } catch (err) {
         console.error('Error deleting expired records:', err);
     }
-}
+};
 
-async function deleteCode(pool) {
+async function deleteCode(pool: Pool) {
     setTimeout(() => {
         deleteExpiredCodes(pool);
     }, 5 * 60 * 1000);
