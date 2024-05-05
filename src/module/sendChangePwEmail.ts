@@ -2,7 +2,7 @@ import nodemailer from 'nodemailer';
 import pool from '../config/postgres.js';
 import jwt from 'jsonwebtoken';
 
-async function changePwEmail(email) {
+const changePwEmail = async (email: string) => {
     let transporter = nodemailer.createTransport({
         service: 'naver',
         auth: {
@@ -55,6 +55,6 @@ async function changePwEmail(email) {
         }
     });
     return token;
-}
+};
 
 export default changePwEmail;
