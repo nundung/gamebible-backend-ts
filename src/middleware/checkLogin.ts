@@ -1,10 +1,11 @@
+import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import BadRequestException from '../exception/badRequestException';
 
 dotenv.config();
 
-const checkLogin = (req, res, next) => {
+const checkLogin = (req: Request, res: Response, next: NextFunction) => {
     // `Authorization` 헤더에서 값을 추출
     const authHeader: string = req.headers.authorization;
 
@@ -22,7 +23,10 @@ const checkLogin = (req, res, next) => {
 
         // Bearer 토큰이 맞으면 두 번째 요소를 추출하여 토큰으로 사용
         const token = authArray[1];
-        req.decoded = jwt.verify(token, process.env.SECRET_KEY);
+        req.decoded = jwt.verify(token, process.env.SECRET_KEY) as {
+            idx: number;
+            isAdmin: boolean;
+        };
         next();
     } catch (err) {
         const statusCode: number = err.status || 500;
