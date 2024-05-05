@@ -72,7 +72,7 @@ router.post(
             // 비밀번호가 일치하면 토큰 생성
             const token = jwt.sign(
                 {
-                    userIdx: user.userIdx,
+                    idx: user.userIdx,
                     isAdmin: user.isAdmin,
                 },
                 process.env.SECRET_KEY || '',
@@ -458,7 +458,7 @@ router.put(
     async (req, res, next) => {
         const pw: string = req.body.pw;
         try {
-            const userIdx: number = req.decoded.userIdx;
+            const userIdx: number = req.decoded.idx;
             if (!userIdx) {
                 throw new UnauthorizedException('로그인 정보 없음');
             }
