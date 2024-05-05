@@ -458,8 +458,8 @@ router.put(
     async (req, res, next) => {
         const pw: string = req.body.pw;
         try {
-            const userIdx: number = req.decoded.idx;
-            if (!userIdx) {
+            const loginUser = req.decoded;
+            if (!loginUser.idx) {
                 throw new UnauthorizedException('로그인 정보 없음');
             }
             const hashedPw = await hashPassword(pw); // 비밀번호 해싱
@@ -474,7 +474,7 @@ router.put(
                     user_idx = $1
                 RETURNING
                     pw`,
-                [userIdx, hashedPw]
+                [loginUser.idx, hashedPw]
             );
             if (deletePwRows.length === 0) {
                 throw new BadRequestException('비밀번호 변경 실패');
@@ -489,8 +489,8 @@ router.put(
 // 내 정보 보기
 router.get('/info', checkLogin, async (req, res, next) => {
     try {
-        const userIdx: number = req.decoded.idx;
-        if (!userIdx) {
+        const loginUser = req.decoded;
+        if (!loginUser.idx) {
             throw new UnauthorizedException('로그인 정보 없음');
         }
         const { rows: userInfoRows } = await pool.query<{
@@ -525,7 +525,7 @@ router.get('/info', checkLogin, async (req, res, next) => {
                 u.idx = ak.user_idx
             WHERE
                 u.idx = $1`,
-            [userIdx]
+            [loginUser.idx]
         );
         if (userInfoRows.length === 0) {
             throw new ForbiddenException('내 정보 보기 실패');
