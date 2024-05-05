@@ -12,14 +12,16 @@ const checkLogin = (req, res, next) => {
         if (!authHeader) {
             throw new BadRequestException('no token');
         }
+        const authArray = authHeader.split(' ');
 
-        // `Bearer ` 접두사를 제거하여 실제 토큰 값만 추출
-        const token = authHeader.split(' ')[1];
-
-        if (!token) {
-            throw new BadRequestException('no token');
+        // 배열의 첫 번째 요소가 'Bearer'인지 확인
+        if (authArray.length !== 2 || authArray[0] !== 'Bearer') {
+            // 올바른 형식이 아니면 에러 처리
+            throw new BadRequestException('올바른 인증 형식이 아닙니다.');
         }
 
+        // Bearer 토큰이 맞으면 두 번째 요소를 추출하여 토큰으로 사용
+        const token = authArray[1];
         req.decoded = jwt.verify(token, process.env.SECRET_KEY);
         next();
     } catch (err) {
