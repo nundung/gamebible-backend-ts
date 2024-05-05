@@ -5,7 +5,7 @@ declare global {
     namespace Express {
         interface Request {
             decoded: {
-                userIdx: number;
+                idx: number;
                 isAdmin: boolean;
             };
         }
