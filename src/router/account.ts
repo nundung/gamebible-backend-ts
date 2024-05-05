@@ -489,19 +489,40 @@ router.put(
 // 내 정보 보기
 router.get('/info', checkLogin, async (req, res, next) => {
     try {
-        const userIdx: number = req.decoded.userIdx;
+        const userIdx: number = req.decoded.idx;
         if (!userIdx) {
             throw new UnauthorizedException('로그인 정보 없음');
         }
-        const { rows: userInfoRows } = await pool.query(
+        const { rows: userInfoRows } = await pool.query<{
+            idx: number;
+            isAdmin: boolean;
+            id: string;
+            nickname: string;
+            email: string;
+            created_at: Date;
+            deleted_at: Date;
+            kakaoKey: number;
+        }>(
             `SELECT
-                u.*, al.*, ak.*
+                u.idx,
+                u.is_admin AS "isAdmin",
+                u.nickname,
+                u.email,
+                u.created_at,
+                u.deleted_at,
+                al.user_idx,
+                al.id,
+                ak.kakao_key AS "kakaoKey"
             FROM
                 "user" u
             LEFT JOIN
-                account_local al ON u.idx = al.user_idx
+                account_local al 
+            ON 
+                u.idx = al.user_idx
             LEFT JOIN
-                account_kakao ak ON u.idx = ak.user_idx
+                account_kakao ak
+            ON 
+                u.idx = ak.user_idx
             WHERE
                 u.idx = $1`,
             [userIdx]
