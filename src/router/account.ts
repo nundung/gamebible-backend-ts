@@ -708,4 +708,22 @@ router.put('/image', checkLogin, uploadS3.single('image'), async (req, res, next
     }
 });
 
+// 회원 탈퇴
+router.delete('/', checkLogin, async (req, res, next) => {
+    try {
+        const loginUser = req.decoded;
+        await pool.query(
+            `UPDATE
+                "user" 
+            SET
+                deleted_at = now()
+            WHERE
+                idx = $1`,
+            [loginUser.idx]
+        );
+        return res.status(200).send('회원 탈퇴 성공');
+    } catch (err) {
+        next(err);
+    }
+});
 export default router;
