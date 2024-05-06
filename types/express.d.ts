@@ -6,6 +6,7 @@ declare global {
         interface Request {
             decoded: {
                 idx: number;
+                id: string;
                 isAdmin: boolean;
             };
         }
