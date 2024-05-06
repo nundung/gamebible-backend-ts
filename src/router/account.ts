@@ -629,17 +629,83 @@ router.put(
                 WHERE
                     idx = $1
                 RETURNING
-                    nickname, email`,
+                    idx`,
                 [loginUser.idx, nickname, email]
             );
             if (userInfoChangeRows.length === 0) {
                 throw new ForbiddenException('내 정보 수정 실패');
             }
-
             return res.status(200).send({ message: '내 정보 수정 성공' });
         } catch (err) {
             next(err);
         }
     }
 );
+
+//프로필 이미지 업로드
+router.put('/image', checkLogin, uploadS3.single('image'), async (req, res, next) => {
+    let poolClient: PoolClient;
+    try {
+        const loginUser = req.decoded;
+        const uploadedFile = req.file;
+
+        poolClient = await pool.connect();
+        await poolClient.query('BEGIN');
+
+        if (!uploadedFile) {
+            throw new BadRequestException('업로드 된 파일이 없습니다');
+        }
+        //기존 프로필 이미지가 있는지 확인
+        const { rows: searchImageRows } = await pool.query(
+            `SELECT
+                *
+            FROM
+                profile_img
+            WHERE
+                user_idx = $1`,
+            [loginUser.idx]
+        );
+
+        //기존 프로필 이미지가 있는 경우 삭제
+        if (searchImageRows.length > 0) {
+            await poolClient.query(
+                `UPDATE
+                    profile_img
+                SET
+                    deleted_at = now()
+                WHERE
+                    user_idx = $1`,
+                [loginUser.idx]
+            );
+            console.log('이전 이미지 삭제');
+        }
+
+        //새 프로필 이미지 업로드
+        const { rows: imageRows } = await poolClient.query<{
+            idx: number;
+        }>(
+            `INSERT INTO
+                profile_img (
+                    img_path,
+                    user_idx
+                )
+            VALUES ($1, $2)
+            RETURNING
+                idx`,
+            [uploadedFile.destination, loginUser.idx]
+        );
+        if (imageRows.length === 0) {
+            await poolClient.query(`ROLLBACK`);
+            throw new ForbiddenException('프로필 이미지 수정 실패');
+        }
+        await poolClient.query(`COMMIT`);
+        return res.status(200).send('프로필 이미지 수정 성공');
+    } catch (err) {
+        if (poolClient) await poolClient.query(`ROLLBACK`);
+        next(err);
+    } finally {
+        if (poolClient) poolClient.release();
+    }
+});
+
 export default router;
