@@ -1,11 +1,11 @@
-import { Request, Response, NextFunction } from 'express';
+import { Request, Response, NextFunction, RequestHandler } from 'express';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import BadRequestException from '../exception/badRequestException';
 
 dotenv.config();
 
-const checkLogin = (req: Request, res: Response, next: NextFunction) => {
+const checkLogin: RequestHandler = (req, res, next) => {
     // `Authorization` 헤더에서 값을 추출
     const authHeader: string = req.headers.authorization;
 
