@@ -726,4 +726,63 @@ router.delete('/', checkLogin, async (req, res, next) => {
         next(err);
     }
 });
+
+//알람 출력
+router.get('/notification', checkLogin, async (req, res, next) => {
+    try {
+        const loginUser = req.decoded;
+        const { rows: firstLastIdxRows } = await pool.query<{
+            idx: number;
+        }>(
+            `SELECT
+                idx
+            FROM
+                notification
+            WHERE
+                user_idx=$1
+            ORDER BY
+                idx
+            DESC LIMIT 1`,
+            [loginUser.idx]
+        );
+        if (firstLastIdxRows.length === 0) {
+            return res.status(204).send(loginUser.idx + '번 사용자의 알람이 없습니다.');
+        }
+        const returnfirstLastIdx = firstLastIdxRows[0].idx;
+        const lastIdx = req.query.lastidx || returnfirstLastIdx + 1;
+
+        // 사용자의 알람 조회
+        const { rows: notificationRows } = await pool.query(
+            `SELECT
+                n.*,
+                p.title AS post_title,
+                g.title AS game_title
+            FROM
+                notification n
+            LEFT JOIN
+                post p ON n.post_idx = p.idx AND n.type = 1
+            LEFT JOIN
+                game g ON n.game_idx = g.idx AND (n.type = 2 OR n.type = 3)
+            WHERE
+                n.user_idx = $1
+            AND
+                n.idx < $2
+            AND 
+                n.deleted_at IS NULL
+            ORDER BY
+                n.idx DESC
+            LIMIT 20`,
+            [lastIdx]
+        );
+        const list = notificationRows;
+        const returnLastIdx = list[list.length - 1]?.idx;
+        if (notificationRows.length === 0) {
+            return res.status(204).send(loginUser.idx + '번 사용자의 알람이 없습니다.');
+        }
+        res.status(200).send({ notifications: notificationRows, lastIdx: returnLastIdx });
+    } catch (err) {
+        next(err);
+    }
+});
+
 export default router;
