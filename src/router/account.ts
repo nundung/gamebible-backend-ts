@@ -1,24 +1,25 @@
 import { Router } from 'express';
+import { PoolClient, PoolConfig } from 'pg';
+import axios from 'axios';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 import { body, query } from 'express-validator';
+
+import pool from '../config/postgres';
+import deleteCode from '../module/deleteEmail';
+import hashPassword from '../module/hashPassword';
+import changePwEmail from '../module/sendChangePwEmail';
+import sendVerificationEmail from '../module/sendVerificationEmail';
+import uploadS3 from '../middleware/upload';
+import checkLogin from '../middleware/checkLogin';
 import handleValidationError from '../middleware/validator';
 import NotFoundException from '../exception/notFoundException';
 import ConflictException from '../exception/conflictException';
-import hashPassword from '../module/hashPassword';
-import { PoolClient, PoolConfig } from 'pg';
-import pool from '../config/postgres';
-import jwt from 'jsonwebtoken';
-import bcrypt from 'bcrypt';
-import InternalServerException from '../exception/internalServerException';
-import generateVerificationCode from '../module/generateVerificationCode';
-import sendVerificationEmail from '../module/sendVerificationEmail';
-import deleteCode from '../module/deleteEmail';
 import ForbiddenException from '../exception/forbiddenException';
-import changePwEmail from '../module/sendChangePwEmail';
-import checkLogin from '../middleware/checkLogin';
 import BadRequestException from '../exception/badRequestException';
 import UnauthorizedException from '../exception/unauthorizedException';
-import uploadS3 from '../middleware/upload';
-import axios from 'axios';
+import InternalServerException from '../exception/internalServerException';
+import generateVerificationCode from '../module/generateVerificationCode';
 
 require('dotenv').config();
 const router = Router();
