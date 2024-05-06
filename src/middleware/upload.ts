@@ -1,13 +1,15 @@
 //Import
-import AWS from 'aws-sdk';
+import { S3Client, ListBucketsCommand } from '@aws-sdk/client-s3';
 import multer, { Options } from 'multer';
 import multerS3 from 'multer-s3';
 
-//aws region 및 자격증명 설정
-const s3 = new AWS.S3({
-    accessKeyId: process.env.S3_ACCESS_KEY_ID,
-    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
+//aws region 설정
+const s3Client = new S3Client({
     region: 'ap-northeast-2',
+    credentials: {
+        accessKeyId: process.env.S3_ACCESS_KEY_ID,
+        secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
+    },
 });
 
 const fileFilter: Options['fileFilter'] = (req, file, cb) => {
@@ -25,7 +27,7 @@ const fileFilter: Options['fileFilter'] = (req, file, cb) => {
 
 const uploadS3 = multer({
     storage: multerS3({
-        s3: s3,
+        s3: s3Client,
         bucket: process.env.S3_BUCKET_NAME,
         contentType: multerS3.AUTO_CONTENT_TYPE,
         key(req, file, cb) {
