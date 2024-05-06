@@ -4,9 +4,11 @@
   "description": "A Web & API server built using TypeScript",
   "main": "dist/server.js",
   "dependencies": {
+    "@types/axios": "^0.14.0",
     "@types/multer": "^1.4.11",
     "@types/multer-s3": "^3.0.3",
     "aws-sdk": "^2.1613.0",
+    "axios": "^1.6.8",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
     "express": "^4.19.2",

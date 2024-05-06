@@ -18,6 +18,7 @@ import checkLogin from '../middleware/checkLogin';
 import BadRequestException from '../exception/badRequestException';
 import UnauthorizedException from '../exception/unauthorizedException';
 import uploadS3 from '../middleware/upload';
+import axios from 'axios';
 
 require('dotenv').config();
 const router = Router();
@@ -821,4 +822,175 @@ router.delete('/notification/:notificationId', checkLogin, async (req, res, next
     }
 });
 
+//카카오 로그인(회원가입)경로
+router.get('/auth/kakao', (req, res, next) => {
+    const kakao = process.env.KAKAO_LOGIN_AUTH;
+    res.status(200).send({ data: kakao });
+});
+
+//카카오톡 로그인(회원가입)
+router.get('/kakao/callback', async (req, res, next) => {
+    const { code } = req.query;
+    const tokenRequestData = {
+        grant_type: 'authorization_code',
+        client_id: process.env.REST_API_KEY,
+        redirect_uri: process.env.REDIRECT_URI,
+        code,
+    };
+    let poolClient: PoolClient;
+    try {
+        const params = new URLSearchParams();
+        Object.keys(tokenRequestData).forEach((key) => {
+            params.append(key, tokenRequestData[key]);
+        });
+
+        // Axios POST 요청
+        const { data } = await axios.post(
+            'https://kauth.kakao.com/oauth/token',
+            params.toString(), // URLSearchParams 객체를 문자열로 변환
+            { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+        );
+        const ACCESS_TOKEN = data.access_token;
+        console.log(ACCESS_TOKEN);
+        const config = { headers: { Authorization: `Bearer ${ACCESS_TOKEN}` } };
+        const response = await axios.get('https://kapi.kakao.com/v2/user/me', config);
+
+        poolClient = await pool.connect();
+        await poolClient.query('BEGIN');
+
+        //중복 사용자 조회
+        const kakaoSql = `
+            SELECT
+                *
+            FROM
+                account_kakao ak
+            JOIN
+                "user" u ON ak.user_idx = u.idx
+            WHERE
+                ak.kakao_key = $1 AND u.deleted_at IS NULL`;
+        const { rows: kakaoRows } = await poolClient.query(kakaoSql, [response.data.id]);
+
+        //중복 사용자가 없다면 회원가입
+        if (kakaoRows.length === 0) {
+            //이메일 중복 확인
+            const { rows: emailRows } = await poolClient.query<{
+                idx: number;
+            }>(
+                `SELECT
+                    idx
+                FROM
+                    "user"
+                WHERE
+                    email = $1
+                AND
+                    deleted_at IS NULL`,
+                [response.data.kakao_account.email]
+            );
+            if (emailRows.length > 0) {
+                await poolClient.query('ROLLBACK');
+                throw new ConflictException('일반 회원가입으로 가입된 사용자입니다.');
+            }
+
+            //랜덤 닉네임 생성
+            function generateRandomString(length: number) {
+                let result = '';
+                let characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+                let charactersLength = characters.length;
+                for (let i = 0; i < length; i++) {
+                    result += characters.charAt(Math.floor(Math.random() * charactersLength));
+                }
+                return result;
+            }
+            let randomNickname = generateRandomString(20);
+            //닉네임 중복 확인
+            const checkNicknameSql = `
+                SELECT
+                    idx
+                FROM
+                    "user" 
+                WHERE 
+                    nickname = $1 
+                AND 
+                    deleted_at IS NULL`;
+            const value = [randomNickname];
+            let { rows: nicknameRows } = await poolClient.query<{ idx: number }>(
+                checkNicknameSql,
+                value
+            );
+            if (nicknameRows.length > 0) {
+                while (nicknameRows.length > 0) {
+                    randomNickname = generateRandomString(20);
+                    nicknameRows = await poolClient.query<{ idx: number }>(checkNicknameSql, value);
+                }
+            }
+
+            //user테이블에 정보 추가
+            const { rows: kakaoRows } = await poolClient.query<{ idx: number }>(
+                `INSERT INTO
+                    "user"(
+                        nickname,
+                        email,
+                        is_admin
+                    ) 
+                VALUES ($1, $2, $3)
+                RETURNING 
+                    idx`,
+                [randomNickname, response.data.kakao_account.email, false]
+            );
+            if (kakaoRows.length === 0) {
+                await poolClient.query('ROLLBACK');
+                return res.status(204).send('카카오 회원가입 실패');
+            }
+
+            //kakao테이블에 정보 추가
+            const userIdx = kakaoRows[0].idx;
+            const { rows: accountRows } = await poolClient.query<{ idx: number }>(
+                `INSERT INTO
+                    account_kakao (
+                        user_idx, 
+                        kakao_key
+                        )
+                VALUES ($1, $2)
+                RETURNING 
+                    idx`,
+                [userIdx, response.data.id]
+            );
+            if (accountRows.length === 0) {
+                await poolClient.query('ROLLBACK');
+                return res.status(204).send({ message: '카카오 회원가입 실패' });
+            }
+        }
+
+        const { rows: userRows } = await poolClient.query(kakaoSql, [response.data.id]);
+
+        if (userRows.length === 0) {
+            return res.status(204).send({ message: '카카오톡 로그인 실패' });
+        }
+
+        const user = userRows[0];
+
+        await poolClient.query('COMMIT');
+
+        const token = jwt.sign(
+            {
+                id: response.data.id,
+                userIdx: user.user_idx,
+                isAdmin: user.is_admin,
+            },
+            process.env.SECRET_KEY,
+            {
+                expiresIn: '5h',
+            }
+        );
+        return res.status(200).json({
+            kakaoLogin: true,
+            idx: user.user_idx,
+            id: response.data.id,
+            email: response.data.kakao_account.email,
+            token: token,
+        });
+    } catch (err) {
+        next(err);
+    }
+});
 export default router;
