@@ -28,4 +28,4 @@ const checkAdmin: RequestHandler = (req, res, next) => {
     }
 };
 
-module.exports = checkAdmin;
+export default checkAdmin;
