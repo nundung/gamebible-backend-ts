@@ -1,6 +1,6 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router } from 'express';
 import { body, query } from 'express-validator';
-import { handleValidationErrors } from '../middleware/validator';
+import handleValidationError from '../middleware/validator';
 import NotFoundException from '../exception/notFoundException';
 import ConflictException from '../exception/conflictException';
 import hashPassword from '../module/hashPassword';
@@ -17,6 +17,7 @@ import changePwEmail from '../module/sendChangePwEmail';
 import checkLogin from '../middleware/checkLogin';
 import BadRequestException from '../exception/badRequestException';
 import UnauthorizedException from '../exception/unauthorizedException';
+import uploadS3 from '../middleware/upload';
 
 require('dotenv').config();
 const router = Router();
@@ -33,19 +34,19 @@ router.post(
         .trim()
         .isLength({ min: 8, max: 20 })
         .withMessage('비밀번호는 8자 이상 20자 이하이어야 합니다.'),
-    handleValidationErrors,
+    handleValidationError,
     async (req, res, next) => {
         const { id, pw } = req.body as { id: string; pw: string };
         try {
             const { rows: userRows } = await pool.query<{
                 pw: string;
-                userIdx: number;
+                idx: number;
                 isAdmin: boolean;
             }>(
                 `
                 SELECT
                     pw,
-                    user_idx AS "userIdx",
+                    user_idx AS "idx",
                     is_admin AS "isAdmin"
                 FROM
                     account_local al
@@ -72,7 +73,7 @@ router.post(
             // 비밀번호가 일치하면 토큰 생성
             const token = jwt.sign(
                 {
-                    idx: user.userIdx,
+                    idx: user.idx,
                     isAdmin: user.isAdmin,
                 },
                 process.env.SECRET_KEY || '',
@@ -103,7 +104,7 @@ router.post(
         .trim()
         .isLength({ min: 2, max: 20 })
         .withMessage('닉네임은 2자 이상 20자 이하로 해주세요.'),
-    handleValidationErrors,
+    handleValidationError,
     async (req, res, next) => {
         const { id, pw, nickname, email } = req.body as {
             id: string;
@@ -235,7 +236,7 @@ router.post(
         .trim()
         .isLength({ min: 4, max: 20 })
         .withMessage('아이디는 4자 이상 20자 이하로 해주세요.'),
-    handleValidationErrors,
+    handleValidationError,
     async (req, res, next) => {
         try {
             const id: string = req.body.id;
@@ -274,7 +275,7 @@ router.post(
         .trim()
         .isLength({ min: 2, max: 20 })
         .withMessage('닉네임은 2자 이상 20자 이하로 해주세요.'),
-    handleValidationErrors,
+    handleValidationError,
     async (req, res, next) => {
         try {
             const nickname: string = req.body.nickname;
@@ -306,7 +307,7 @@ router.post(
 router.post(
     '/email/check',
     body('email').trim().isEmail().withMessage('유효하지 않은 이메일 형식입니다.'),
-    handleValidationErrors,
+    handleValidationError,
     async (req, res, next) => {
         try {
             const email: string = req.body.email;
@@ -364,7 +365,7 @@ router.post(
         .isNumeric()
         .withMessage('인증코드는 숫자로만 구성되어야 합니다.'),
     body('email').trim().isEmail().withMessage('유효하지 않은 이메일 형식입니다.'),
-    handleValidationErrors,
+    handleValidationError,
     async (req, res, next) => {
         try {
             const { email, code } = req.body as {
@@ -398,7 +399,7 @@ router.post(
 router.get(
     '/id',
     query('email').trim().isEmail().withMessage('유효하지 않은 이메일 형식입니다.'),
-    handleValidationErrors,
+    handleValidationError,
     async (req, res, next) => {
         const email: string = req.query.email;
         try {
@@ -434,7 +435,7 @@ router.get(
 router.post(
     '/pw/email',
     body('email').trim().isEmail().withMessage('유효하지 않은 이메일 형식입니다.'),
-    handleValidationErrors,
+    handleValidationError,
     async (req, res, next) => {
         const email: string = req.body.email;
         try {
@@ -453,7 +454,7 @@ router.put(
         .trim()
         .isLength({ min: 8, max: 20 })
         .withMessage('비밀번호는 8자 이상 20자 이하이어야 합니다.'),
-    handleValidationErrors,
+    handleValidationError,
     checkLogin,
     async (req, res, next) => {
         const pw: string = req.body.pw;
@@ -549,7 +550,7 @@ router.put(
         .trim()
         .isLength({ min: 2, max: 20 })
         .withMessage('닉네임은 2자 이상 20자 이하로 해주세요.'),
-    handleValidationErrors,
+    handleValidationError,
     async (req, res, next) => {
         const loginUser = req.decoded;
         const { nickname, email } = req.body as {
