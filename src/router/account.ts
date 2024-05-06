@@ -785,4 +785,40 @@ router.get('/notification', checkLogin, async (req, res, next) => {
     }
 });
 
+//알람 삭제
+router.delete('/notification/:notificationId', checkLogin, async (req, res, next) => {
+    try {
+        const loginUser = req.decoded; // 사용자 ID
+        const { notificationId } = req.params; // URL에서 알람 ID 추출
+
+        // 알람이 사용자의 것인지 확인하는 쿼리
+        const { rows: checkRows } = await pool.query(
+            `SELECT
+                user_idx AS "userIdx'
+            FROM
+                notification
+            WHERE
+                idx = $1 AND user_idx = $2`,
+            [notificationId, loginUser.idx]
+        );
+        if (checkRows.length === 0) {
+            return res.status(204).send('해당 알람을 찾을 수 없거나 삭제할 권한이 없습니다.');
+        }
+
+        // 알람 삭제 쿼리 실행
+        await pool.query(
+            `UPDATE
+                notification
+            SET
+                deleted_at = now()
+            WHERE
+                idx = $1`,
+            [notificationId]
+        );
+        res.status(200).send(notificationId + '번 알람이 삭제되었습니다.');
+    } catch (err) {
+        next(err);
+    }
+});
+
 export default router;
