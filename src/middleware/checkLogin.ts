@@ -2,6 +2,7 @@ import { RequestHandler } from 'express';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import BadRequestException from '../exception/badRequestException';
+import UnauthorizedException from '../exception/unauthorizedException';
 
 dotenv.config();
 
@@ -11,7 +12,7 @@ const checkLogin: RequestHandler = (req, res, next) => {
 
     try {
         if (!authHeader) {
-            throw new BadRequestException('no token');
+            throw new UnauthorizedException('no token');
         }
         const authArray = authHeader.split(' ');
 
