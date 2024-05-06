@@ -803,7 +803,7 @@ router.delete('/notification/:notificationId', checkLogin, async (req, res, next
             [notificationId, loginUser.idx]
         );
         if (checkRows.length === 0) {
-            return res.status(204).send('해당 알람을 찾을 수 없거나 삭제할 권한이 없습니다.');
+            throw new ForbiddenException('해당 알람을 찾을 수 없거나 삭제할 권한이 없습니다.');
         }
 
         // 알람 삭제 쿼리 실행
@@ -828,7 +828,7 @@ router.get('/auth/kakao', (req, res, next) => {
     res.status(200).send({ data: kakao });
 });
 
-//카카오톡 로그인(회원가입)
+//카카오 로그인(회원가입)
 router.get('/kakao/callback', async (req, res, next) => {
     const { code } = req.query;
     const tokenRequestData = {
@@ -939,7 +939,7 @@ router.get('/kakao/callback', async (req, res, next) => {
             );
             if (kakaoRows.length === 0) {
                 await poolClient.query('ROLLBACK');
-                return res.status(204).send('카카오 회원가입 실패');
+                throw new ForbiddenException('카카오 회원가입 실패');
             }
 
             //kakao테이블에 정보 추가
@@ -957,14 +957,14 @@ router.get('/kakao/callback', async (req, res, next) => {
             );
             if (accountRows.length === 0) {
                 await poolClient.query('ROLLBACK');
-                return res.status(204).send({ message: '카카오 회원가입 실패' });
+                throw new ForbiddenException('카카오 회원가입 실패');
             }
         }
 
         const { rows: userRows } = await poolClient.query(kakaoSql, [response.data.id]);
 
         if (userRows.length === 0) {
-            return res.status(204).send({ message: '카카오톡 로그인 실패' });
+            throw new ForbiddenException('카카오 회원가입 실패');
         }
 
         const user = userRows[0];
@@ -993,4 +993,38 @@ router.get('/kakao/callback', async (req, res, next) => {
         next(err);
     }
 });
+
+//카카오 탈퇴
+router.delete('/auth/kakao', checkLogin, async (req, res, next) => {
+    const loginUser = req.decoded;
+    try {
+        await axios.post(
+            'https://kapi.kakao.com/v1/user/unlink',
+            `target_id_type=user_id&target_id=${loginUser.id}`,
+            {
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    Authorization: `KakaoAK ${process.env.ADMIN_KEY}`,
+                },
+            }
+        );
+
+        const { rowCount: deleteRowCount } = await pool.query(
+            `UPDATE
+                "user"
+            SET
+                deleted_at = now()
+            WHERE
+                idx = $1`,
+            [loginUser.idx]
+        );
+        if (deleteRowCount === 0) {
+            throw new ForbiddenException('카카오 회원탈퇴 실패');
+        }
+        res.json('회원 탈퇴 성공');
+    } catch (error) {
+        next(error);
+    }
+});
+
 export default router;

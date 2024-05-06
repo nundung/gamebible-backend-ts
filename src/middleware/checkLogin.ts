@@ -25,6 +25,7 @@ const checkLogin: RequestHandler = (req, res, next) => {
         const token = authArray[1];
         req.decoded = jwt.verify(token, process.env.SECRET_KEY) as {
             idx: number;
+            id: string;
             isAdmin: boolean;
         };
         next();
