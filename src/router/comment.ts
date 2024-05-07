@@ -4,6 +4,7 @@ import { body } from 'express-validator';
 
 import pool from '../config/postgres';
 import checkLogin from '../middleware/checkLogin';
+import ForbiddenException from '../exception/forbiddenException';
 
 require('dotenv').config();
 const router = Router();
@@ -125,7 +126,7 @@ router.get('/all', checkLogin, async (req, res, next) => {
         );
 
         if (!commentRows || commentRows.length === 0) {
-            res.status(200).end();
+            res.status(204).end();
         } else {
             res.status(200).send({
                 data: commentRows,
@@ -143,20 +144,27 @@ router.delete('/:commentidx', checkLogin, async (req, res, next) => {
     const commentIdx = parseInt(req.params.commentidx);
     try {
         const loginUser = req.decoded;
-        await pool.query(
+        const { rows: deleteCommentRows } = await pool.query<{
+            idx: number;
+        }>(
             `UPDATE comment
             SET
                 deleted_at = now()
             WHERE
                 idx = $1
             AND 
-                user_idx = $2`,
+                user_idx = $2
+            RETURNING
+                idx`,
             [commentIdx, loginUser.idx]
         );
+        if (deleteCommentRows.length === 0) {
+            throw new ForbiddenException('댓글 삭제 실패');
+        }
         res.status(200).send();
     } catch (err) {
         next(err);
     }
 });
 
-module.exports = router;
+export default router;
