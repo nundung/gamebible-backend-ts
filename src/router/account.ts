@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { PoolClient, PoolConfig } from 'pg';
+import { PoolClient } from 'pg';
 import axios from 'axios';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
@@ -687,7 +687,7 @@ router.put('/image', checkLogin, uploadS3.single('image'), async (req, res, next
             idx: number;
         }>(
             `INSERT INTO
-                profile_img (
+                profile_img(
                     img_path,
                     user_idx
                 )
@@ -903,25 +903,25 @@ router.get('/kakao/callback', async (req, res, next) => {
                 return result;
             }
             let randomNickname = generateRandomString(20);
+
             //닉네임 중복 확인
-            const checkNicknameSql = `
-                SELECT
-                    idx
-                FROM
-                    "user" 
-                WHERE 
-                    nickname = $1 
-                AND 
-                    deleted_at IS NULL`;
-            const value = [randomNickname];
-            let { rows: nicknameRows } = await poolClient.query<{ idx: number }>(
-                checkNicknameSql,
-                value
-            );
-            if (nicknameRows.length > 0) {
-                while (nicknameRows.length > 0) {
+            let isNicknameAvailable = false;
+            while (!isNicknameAvailable) {
+                const { rows: nicknameRows } = await poolClient.query<{ idx: number }>(
+                    `SELECT
+                        idx
+                    FROM
+                        "user" 
+                    WHERE 
+                        nickname = $1 
+                    AND 
+                        deleted_at IS NULL`,
+                    [randomNickname]
+                );
+                if (nicknameRows.length === 0) {
+                    isNicknameAvailable = true;
+                } else {
                     randomNickname = generateRandomString(20);
-                    nicknameRows = await poolClient.query<{ idx: number }>(checkNicknameSql, value);
                 }
             }
 
@@ -932,9 +932,9 @@ router.get('/kakao/callback', async (req, res, next) => {
                         nickname,
                         email,
                         is_admin
-                    ) 
+                    )
                 VALUES ($1, $2, $3)
-                RETURNING 
+                RETURNING
                     idx`,
                 [randomNickname, response.data.kakao_account.email, false]
             );
