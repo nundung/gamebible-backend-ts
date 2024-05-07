@@ -7,6 +7,7 @@ import checkLogin from '../middleware/checkLogin';
 import checkAdmin from '../middleware/checkAdmin';
 import BadRequestException from '../exception/badRequestException';
 import ConflictException from '../exception/conflictException';
+
 require('dotenv').config();
 const router = Router();
 
@@ -412,4 +413,4 @@ router.post(
     }
 );
 
-module.exports = router;
+export default router;
