@@ -7,6 +7,7 @@ import checkLogin from '../middleware/checkLogin';
 import checkAdmin from '../middleware/checkAdmin';
 import BadRequestException from '../exception/badRequestException';
 import ConflictException from '../exception/conflictException';
+import { generateNotification } from '../module/generateNotification';
 
 require('dotenv').config();
 const router = Router();

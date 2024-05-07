@@ -5,6 +5,7 @@ import { body } from 'express-validator';
 import pool from '../config/postgres';
 import checkLogin from '../middleware/checkLogin';
 import ForbiddenException from '../exception/forbiddenException';
+import { generateNotification } from '../module/generateNotification';
 
 require('dotenv').config();
 const router = Router();
@@ -79,21 +80,6 @@ router.get('/all', checkLogin, async (req, res, next) => {
     const postIdx = parseInt(req.query.postidx as string);
     try {
         const loginUser = req.decoded;
-        // totalcomments를 가져오는 별도의 쿼리
-        const { rows: totalCommentNumberRows } = await pool.query<{
-            totalCommentNumber: number;
-        }>(
-            `SELECT
-                COUNT(*)::int AS "totalCommentNumber"
-            FROM
-                comment
-            WHERE
-                post_idx = $1
-            AND 
-                deleted_at IS NULL`,
-            [postIdx]
-        );
-
         //20개씩 불러오기
         const { rows: commentRows } = await pool.query<{
             idx: number;
@@ -124,16 +110,29 @@ router.get('/all', checkLogin, async (req, res, next) => {
                 20`,
             [postIdx, lastIdx]
         );
-
-        if (!commentRows || commentRows.length === 0) {
+        if (!commentRows || !commentRows.length) {
             res.status(204).end();
-        } else {
-            res.status(200).send({
-                data: commentRows,
-                lastIdx: commentRows[commentRows.length - 1].idx,
-                totalComments: totalCommentNumberRows[0].totalCommentNumber,
-            });
         }
+
+        // totalcomment의 개수를 가져오는 별도의 쿼리
+        const { rows: totalCommentNumberRows } = await pool.query<{
+            totalCommentNumber: number;
+        }>(
+            `SELECT
+                COUNT(*)::int AS "totalCommentNumber"
+            FROM
+                comment
+            WHERE
+                post_idx = $1
+            AND 
+                deleted_at IS NULL`,
+            [postIdx]
+        );
+        res.status(200).send({
+            data: commentRows,
+            lastIdx: commentRows[commentRows.length - 1].idx,
+            totalComments: totalCommentNumberRows[0].totalCommentNumber,
+        });
     } catch (err) {
         next(err);
     }
