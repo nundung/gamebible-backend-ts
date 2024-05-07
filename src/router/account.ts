@@ -687,7 +687,7 @@ router.put('/image', checkLogin, uploadS3.single('image'), async (req, res, next
             idx: number;
         }>(
             `INSERT INTO
-                profile_img (
+                profile_img(
                     img_path,
                     user_idx
                 )
