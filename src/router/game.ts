@@ -34,8 +34,7 @@ router.post(
                     deleted_at IS NULL`,
                 [title]
             );
-            const existingGame = selectGameRows[0];
-            if (existingGame) {
+            if (selectGameRows[0]) {
                 throw new ConflictException('이미존재하는 게임');
             }
             await pool.query(
@@ -56,11 +55,10 @@ router.post(
 );
 
 //게임목록불러오기
-router.get('/all', async (req, res, next) => {
+router.get('/all', query('gameidx').isInt(), async (req, res, next) => {
     let page = parseInt(req.query.page as string) || 1;
     //20개씩 불러오기
     const skip = (page - 1) * 20;
-
     try {
         const { rows: selectGameRows } = await pool.query<{
             idx: number;
@@ -90,7 +88,9 @@ router.get('/all', async (req, res, next) => {
         }
 
         //totalgame의 개수를 가져오는 별도의 쿼리
-        const { rows: totalGamesNumberRows } = await pool.query(
+        const { rows: totalGameRows } = await pool.query<{
+            count: number;
+        }>(
             `SELECT
                 count(*)
             FROM
@@ -98,14 +98,14 @@ router.get('/all', async (req, res, next) => {
             WHERE
                 deleted_at IS NULL`
         );
-        const maxPage = Math.ceil(totalGamesNumberRows[0].count / 20);
+        const maxPage = Math.ceil(totalGameRows[0].count / 20);
 
         res.status(200).send({
             data: {
                 maxPage: maxPage,
                 page: page,
                 skip: skip,
-                count: totalGamesNumberRows.length,
+                count: totalGameRows.length,
                 gameList: selectGameRows,
             },
         });
@@ -162,7 +162,7 @@ router.get(
 );
 
 //인기게임목록불러오기(게시글순)
-router.get('/popular', async (req, res, next) => {
+router.get('/popular', query('page').isInt(), async (req, res, next) => {
     const page = Number(req.query.page) || 1;
     let skip: number;
     let count: number;
@@ -177,36 +177,46 @@ router.get('/popular', async (req, res, next) => {
     }
 
     try {
-        const totalGamesRows = await pool.query<{}>(`
+        const { rows: totalGameRows } = await pool.query<{
+            count: number;
+        }>(`
             SELECT
                 count(*)
             FROM
-                game g
+                game
             WHERE
-                deleted_at IS NULL    
+                deleted_at IS NULL
         `);
-        const maxPage = Math.ceil((totalGamesRows[0].count - 19) / 16) + 1;
+        const maxPage = Math.ceil((totalGameRows[0].count - 19) / 16) + 1;
 
-        const popularSelectSQLResult = await pool.query(
+        const { rows: popularGameRows } = await pool.query<{
+            idx: number;
+            title: string;
+            postCount: number;
+            imgPath: string;
+        }>(
             //게시글 수가 많은 게임 순서대로 게임 idx, 제목, 이미지경로 추출
             `
                 SELECT
-                    g.idx, g.title, count(*) AS "postCount" ,t.img_path  AS "imgPath"
+                    g.idx,
+                    g.title,
+                    count(*) AS "postCount",
+                    t.img_path AS "imgPath"
                 FROM 
-                    game g 
-                JOIN 
-                    post p 
-                ON 
-                    g.idx = p.game_idx 
-                JOIN 
-                    game_img_thumbnail t 
-                ON 
-                    g.idx = t.game_idx 
-                WHERE 
-                    t.deleted_at IS NULL 
-                GROUP BY 
+                    game g
+                JOIN
+                    post p
+                ON
+                    g.idx = p.game_idx
+                JOIN
+                    game_img_thumbnail t
+                ON
+                    g.idx = t.game_idx
+                WHERE
+                    t.deleted_at IS NULL
+                GROUP BY
                     g.title, t.img_path , g.idx
-                ORDER BY 
+                ORDER BY
                     "postCount" DESC
                 LIMIT
                     $1
@@ -214,30 +224,30 @@ router.get('/popular', async (req, res, next) => {
                     $2`,
             [count, skip]
         );
-        const popularGameList = popularSelectSQLResult.rows;
-
-        if (!popularGameList.length) return res.status(204).send();
+        if (!popularGameRows.length) return res.status(204).send();
 
         res.status(200).send({
             data: {
                 maxPage: maxPage,
                 page: page,
                 skip: skip,
-                count: popularGameList.length,
-                gameList: popularGameList,
+                count: popularGameRows.length,
+                gameList: popularGameRows,
             },
         });
-    } catch (e) {
-        next(e);
+    } catch (err) {
+        next(err);
     }
 });
 
 //배너이미지 가져오기
-router.get('/:gameidx/banner', async (req, res, next) => {
+router.get('/:gameidx/banner', query('gameidx').isInt(), async (req, res, next) => {
     const gameIdx = req.params.gameidx;
     try {
         //삭제되지않은 배너이미지경로 가져오기
-        const bannerSQLResult = await pool.query(
+        const { rows: bannerRows } = await pool.query<{
+            imgPath: string;
+        }>(
             `
             SELECT
                 img_path AS "imgPath"
@@ -249,21 +259,20 @@ router.get('/:gameidx/banner', async (req, res, next) => {
                 deleted_at IS NULL`,
             [gameIdx]
         );
-        const banner = bannerSQLResult.rows;
         res.status(200).send({
-            data: banner,
+            data: bannerRows,
         });
-    } catch (e) {
-        next(e);
+    } catch (err) {
+        next(err);
     }
 });
 
 //히스토리 목록보기
-router.get('/:gameidx/history/all', async (req, res, next) => {
+router.get('/:gameidx/history/all', query('gameidx').isInt(), async (req, res, next) => {
     const gameIdx = Number(req.params.gameidx);
     try {
         //특정게임 히스토리목록 최신순으로 출력
-        const selectHistoryRows = await pool.query<{
+        const { rows: selectHistoryRows } = await pool.query<{
             idx: number;
             createdAt: Date;
             nickname: string;
@@ -291,7 +300,7 @@ router.get('/:gameidx/history/all', async (req, res, next) => {
             [gameIdx]
         );
 
-        const selectGameRows = await pool.query<{
+        const { rows: selectGameRows } = await pool.query<{
             idx: number;
             title: string;
         }>(
@@ -319,7 +328,7 @@ router.get('/:gameidx/history/all', async (req, res, next) => {
 });
 
 //히스토리 자세히보기
-router.get('/:gameidx/history/:historyidx?', async (req, res, next) => {
+router.get('/:gameidx/history/:historyidx?', query('gameidx').isInt(), async (req, res, next) => {
     let historyIdx = Number(req.params.historyidx);
     const gameIdx = Number(req.params.gameidx);
     try {
@@ -351,8 +360,7 @@ router.get('/:gameidx/history/:historyidx?', async (req, res, next) => {
             nickname: string;
         }>(
             //히스토리 idx, gameidx, useridx, 내용, 시간, 닉네임 출력
-            `
-            SELECT
+            `SELECT
                 h.idx AS "historyIdx",
                 h.game_idx AS "gameIdx",
                 h.user_idx AS "userIdx",
@@ -388,12 +396,13 @@ router.get('/:gameidx/history/:historyidx?', async (req, res, next) => {
 router.put(
     '/:gameidx/wiki',
     checkLogin,
+    query('gameidx').isInt(),
     body('content').trim().isLength({ min: 2 }).withMessage('2글자이상 입력해주세요'),
     handleValidationError,
     async (req, res, next) => {
         const gameIdx = Number(req.params.gameidx);
-        const loginUser = req.decoded;
         const content: string = req.body.content;
+        const loginUser = req.decoded;
 
         let poolClient: PoolClient = null;
         try {
@@ -448,11 +457,11 @@ router.put(
 );
 
 // 임시위키생성
-router.post('/:gameidx/wiki', checkLogin, async (req, res, next) => {
-    const gameIdx = req.params.gameidx;
+router.post('/:gameidx/wiki', checkLogin, query('gameidx').isInt(), async (req, res, next) => {
+    const gameIdx = Number(req.params.gameidx);
     const loginUser = req.decoded;
     try {
-        const { rows: makeTemporaryHistoryRows } = await pool.query<{
+        const { rows: temporaryHistoryRows } = await pool.query<{
             idx: number;
         }>(
             `INSERT INTO 
@@ -467,30 +476,33 @@ router.post('/:gameidx/wiki', checkLogin, async (req, res, next) => {
                 idx`,
             [gameIdx, loginUser.idx]
         );
-        const temporaryHistoryIdx = makeTemporaryHistoryRows[0].idx;
 
         //기존 게임내용 불러오기
-        const { rows: getLatestHistoryRows } = await pool.query(
+        const { rows: getLatestHistoryRows } = await pool.query<{
+            title: string;
+            content: string;
+        }>(
             `SELECT 
-                g.title,h.content
+                g.title,
+                h.content
             FROM 
-                history h 
+                history h
             JOIN 
-                game g 
-            ON 
-                h.game_idx = g.idx 
-            WHERE 
+                game g
+            ON
+                h.game_idx = g.idx
+            WHERE
                 h.game_idx = $1
             AND
-                h.created_at IS NOT NULL 
-            ORDER BY 
-                h.created_at DESC 
-            limit 
-                1;`,
+                h.created_at IS NOT NULL
+            ORDER BY
+                h.created_at DESC
+            limit
+                1`,
             [gameIdx]
         );
         res.status(201).send({
-            historyIdx: temporaryHistoryIdx,
+            historyIdx: temporaryHistoryRows[0].idx,
             title: getLatestHistoryRows[0].title,
             content: getLatestHistoryRows[0].content,
         });
@@ -514,7 +526,7 @@ router.post(
             await pool.query(
                 `INSERT INTO
                     game_img( history_idx, img_path )
-                VALUES ( $1, $2 ) `,
+                VALUES ($1, $2)`,
                 [historyIdx, location]
             );
             res.status(201).send({ data: location });
