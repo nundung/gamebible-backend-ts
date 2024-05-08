@@ -248,8 +248,7 @@ router.get('/:gameidx/banner', query('gameidx').isInt(), async (req, res, next) 
         const { rows: bannerRows } = await pool.query<{
             imgPath: string;
         }>(
-            `
-            SELECT
+            `SELECT
                 img_path AS "imgPath"
             FROM 
                 game_img_banner
@@ -276,8 +275,7 @@ router.get('/:gameidx/history/all', query('gameidx').isInt(), async (req, res, n
             idx: number;
             createdAt: Date;
             nickname: string;
-        }>(
-            // history idx, 히스토리 제목(YYYY-MM-DD HH24:MI:SS 사용자닉네임) 출력
+        }>( // history idx, 히스토리 제목(YYYY-MM-DD HH24:MI:SS 사용자닉네임) 출력
             `SELECT
                 h.idx,
                 TO_CHAR(
