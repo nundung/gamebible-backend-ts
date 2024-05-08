@@ -10,6 +10,9 @@ import checkLogin from '../middleware/checkLogin';
 import handleValidationError from '../middleware/validator';
 import ConflictException from '../exception/conflictException';
 import { stringList } from 'aws-sdk/clients/datapipeline';
+import { generateNotification, generateNotifications } from '../module/generateNotification';
+import uploadS3 from '../middleware/upload';
+import BadRequestException from '../exception/badRequestException';
 
 require('dotenv').config();
 const router = Router();
@@ -233,7 +236,7 @@ router.get('/popular', async (req, res, next) => {
     }
 });
 
-//배너이미지가져오기
+//배너이미지 가져오기
 router.get('/:gameidx/banner', async (req, res, next) => {
     const gameIdx = req.params.gameidx;
     try {
@@ -258,3 +261,267 @@ router.get('/:gameidx/banner', async (req, res, next) => {
         next(e);
     }
 });
+
+//히스토리 목록보기
+router.get('/:gameidx/history/all', async (req, res, next) => {
+    const gameIdx = Number(req.params.gameidx);
+    try {
+        //특정게임 히스토리목록 최신순으로 출력
+        const selectHistoryRows = await pool.query<{
+            idx: number;
+            createdAt: Date;
+            nickname: string;
+        }>(
+            // history idx, 히스토리 제목(YYYY-MM-DD HH24:MI:SS 사용자닉네임) 출력
+            `SELECT
+                h.idx,
+                TO_CHAR(
+                    h.created_at AT TIME ZONE 'Asia/Seoul',
+                    'YYYY-MM-DD HH24:MI:SS'
+                    ) AS "createdAt",
+                nickname
+            FROM
+                history h
+            JOIN
+                "user" u
+            ON
+                h.user_idx = u.idx
+            WHERE
+                game_idx = $1
+            AND
+                h.created_at IS NOT NULL
+            ORDER BY
+                h.created_at DESC`,
+            [gameIdx]
+        );
+
+        const selectGameRows = await pool.query<{
+            idx: number;
+            title: string;
+        }>(
+            `SELECT
+                idx,
+                title
+            FROM
+                game
+            WHERE
+                idx = $1
+            `,
+            [gameIdx]
+        );
+
+        res.status(200).send({
+            data: {
+                idx: selectGameRows[0].idx,
+                title: selectGameRows[0].title,
+                historyList: selectHistoryRows,
+            },
+        });
+    } catch (err) {
+        next(err);
+    }
+});
+
+//히스토리 자세히보기
+router.get('/:gameidx/history/:historyidx?', async (req, res, next) => {
+    let historyIdx = Number(req.params.historyidx);
+    const gameIdx = Number(req.params.gameidx);
+    try {
+        if (!historyIdx) {
+            //가장 최신 히스토리idx 출력
+            const { rows: getLatestHistoryIdxRows } = await pool.query<{
+                MAX: number;
+            }>(
+                `SELECT
+                    MAX(idx)
+                FROM
+                    history
+                WHERE
+                    game_idx = $1
+                AND
+                    created_at IS NOT NULL`,
+                [gameIdx]
+            );
+            historyIdx = getLatestHistoryIdxRows[0].max;
+        }
+
+        const { rows: getHistoryRows } = await pool.query<{
+            historyIdx: number;
+            gameIdx: number;
+            userIdx: number;
+            title: string;
+            content: string;
+            createdAt: Date;
+            nickname: string;
+        }>(
+            //히스토리 idx, gameidx, useridx, 내용, 시간, 닉네임 출력
+            `
+            SELECT
+                h.idx AS "historyIdx",
+                h.game_idx AS "gameIdx",
+                h.user_idx AS "userIdx",
+                title,
+                content,
+                h.created_at AS "createdAt",
+                u.nickname
+            FROM 
+                history h
+            JOIN
+                "user" u
+            ON
+                h.user_idx = u.idx
+            JOIN
+                game g
+            ON 
+                g.idx = h.game_idx
+            WHERE 
+                h.idx = $1
+            AND 
+                game_idx = $2`,
+            [historyIdx, gameIdx]
+        );
+        const history = getHistoryRows;
+
+        res.status(200).send({ data: history });
+    } catch (err) {
+        next(err);
+    }
+});
+
+//게임 수정하기
+router.put(
+    '/:gameidx/wiki',
+    checkLogin,
+    body('content').trim().isLength({ min: 2 }).withMessage('2글자이상 입력해주세요'),
+    handleValidationError,
+    async (req, res, next) => {
+        const gameIdx = Number(req.params.gameidx);
+        const loginUser = req.decoded;
+        const content: string = req.body.content;
+
+        let poolClient: PoolClient = null;
+        try {
+            poolClient = await pool.connect();
+            await poolClient.query(`BEGIN`);
+
+            //기존 게임수정자들 추출
+            const { rows: historyUserRows } = await poolClient.query<{
+                userIdx: number;
+            }>(
+                `SELECT DISTINCT
+                    user_idx AS "userIdx"
+                FROM
+                    history
+                WHERE
+                    game_idx = $1`,
+                [gameIdx]
+            );
+            await generateNotifications({
+                conn: poolClient,
+                type: 'MODIFY_GAME',
+                gameIdx: gameIdx,
+                toUserIdx: historyUserRows.map((elem) => elem.userIdx),
+            });
+
+            // 새로운 히스토리 등록
+            await poolClient.query(
+                `INSERT INTO
+                    history(
+                        game_idx,
+                        user_idx,
+                        content
+                    )
+                VALUES
+                    ($1, $2, $3)`,
+                [gameIdx, loginUser.idx, content]
+            );
+            await poolClient.query(`COMMIT`);
+            res.status(201).send();
+        } catch (err) {
+            await poolClient.query(`ROLLBACK`);
+            next(err);
+        } finally {
+            if (poolClient) {
+                poolClient.release();
+            }
+        }
+    }
+);
+
+// 임시위키생성
+router.post('/:gameidx/wiki', checkLogin, async (req, res, next) => {
+    const gameIdx = req.params.gameidx;
+    const loginUser = req.decoded;
+    try {
+        const { rows: makeTemporaryHistoryRows } = await pool.query<{
+            idx: number;
+        }>(
+            `INSERT INTO 
+                history(
+                    game_idx,
+                    user_idx,
+                    created_at
+                )
+            VALUES
+                ($1, $2, null)
+            RETURNING
+                idx`,
+            [gameIdx, loginUser.idx]
+        );
+        const temporaryHistoryIdx = makeTemporaryHistoryRows[0].idx;
+
+        //기존 게임내용 불러오기
+        const { rows: getLatestHistoryRows } = await pool.query(
+            `SELECT 
+                g.title,h.content
+            FROM 
+                history h 
+            JOIN 
+                game g 
+            ON 
+                h.game_idx = g.idx 
+            WHERE 
+                h.game_idx = $1
+            AND
+                h.created_at IS NOT NULL 
+            ORDER BY 
+                h.created_at DESC 
+            limit 
+                1;`,
+            [gameIdx]
+        );
+        res.status(201).send({
+            historyIdx: temporaryHistoryIdx,
+            title: getLatestHistoryRows[0].title,
+            content: getLatestHistoryRows[0].content,
+        });
+    } catch (err) {
+        next(err);
+    }
+});
+
+// 위키 이미지 업로드
+router.post(
+    '/:gameidx/wiki/image',
+    checkLogin,
+    uploadS3.array('images', 1),
+    async (req, res, next) => {
+        const historyIdx = Number(req.params.historyidx);
+        const images = req.files;
+        try {
+            if (!images) {
+                throw new BadRequestException('이미지가 없습니다');
+            }
+            await pool.query(
+                `INSERT INTO
+                    game_img( history_idx, img_path )
+                VALUES ( $1, $2 ) `,
+                [historyIdx, location]
+            );
+            res.status(201).send({ data: location });
+        } catch (err) {
+            next(err);
+        }
+    }
+);
+export default router;
