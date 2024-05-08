@@ -1,16 +1,12 @@
 import { Router } from 'express';
-import { Pool, PoolClient } from 'pg';
-import axios from 'axios';
-import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
+import { PoolClient } from 'pg';
 import { body, query } from 'express-validator';
 
 import pool from '../config/postgres';
 import checkLogin from '../middleware/checkLogin';
 import handleValidationError from '../middleware/validator';
 import ConflictException from '../exception/conflictException';
-import { stringList } from 'aws-sdk/clients/datapipeline';
-import { generateNotification, generateNotifications } from '../module/generateNotification';
+import { generateNotification } from '../module/generateNotification';
 import uploadS3 from '../middleware/upload';
 import BadRequestException from '../exception/badRequestException';
 
@@ -330,10 +326,10 @@ router.get('/:gameidx/history/:historyidx?', async (req, res, next) => {
         if (!historyIdx) {
             //가장 최신 히스토리idx 출력
             const { rows: getLatestHistoryIdxRows } = await pool.query<{
-                MAX: number;
+                maxIdx: number;
             }>(
                 `SELECT
-                    MAX(idx)
+                    MAX(idx) AS "maxIdx"
                 FROM
                     history
                 WHERE
@@ -342,7 +338,7 @@ router.get('/:gameidx/history/:historyidx?', async (req, res, next) => {
                     created_at IS NOT NULL`,
                 [gameIdx]
             );
-            historyIdx = getLatestHistoryIdxRows[0].max;
+            historyIdx = getLatestHistoryIdxRows[0].maxIdx;
         }
 
         const { rows: getHistoryRows } = await pool.query<{
@@ -416,12 +412,15 @@ router.put(
                     game_idx = $1`,
                 [gameIdx]
             );
-            await generateNotifications({
-                conn: poolClient,
-                type: 'MODIFY_GAME',
-                gameIdx: gameIdx,
-                toUserIdx: historyUserRows.map((elem) => elem.userIdx),
-            });
+            const userIdxList = historyUserRows.map((elem) => elem.userIdx);
+            for (const userIdx of userIdxList) {
+                await generateNotification({
+                    conn: poolClient,
+                    type: 'MODIFY_GAME',
+                    gameIdx: gameIdx,
+                    toUserIdx: userIdx,
+                });
+            }
 
             // 새로운 히스토리 등록
             await poolClient.query(
@@ -524,4 +523,5 @@ router.post(
         }
     }
 );
+
 export default router;
