@@ -317,3 +317,5 @@ router.delete('/:postidx', checkLogin, query('postidx').isInt(), async (req, res
         next(err);
     }
 });
+
+export default router;
