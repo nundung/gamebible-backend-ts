@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { validationResult } from 'express-validator';
+
 import pool from '../config/postgres';
 import BadRequestException from '../exception/badRequestException';
 
 const router = Router();
+
 // 날짜 형식은 2000-01-01
 const validateDate = (date: string) => {
     const dateReg = /^\d{4}-\d{2}-\d{2}$/;
@@ -16,7 +18,7 @@ const validateApi = (api: string) => {
     return !api || validApis.includes(api);
 };
 
-// 로그목록 보기
+// 로그목록 조회
 router.get('/', async (req, res, next) => {
     const {
         startdate: startDate,
