@@ -933,7 +933,6 @@ router.get('/kakao/callback', async (req, res, next) => {
                 }
             }
 
-            console.log('실행');
             //user테이블에 정보 추가
             const { rows: kakaoRows } = await poolClient.query<{ idx: number }>(
                 `INSERT INTO
