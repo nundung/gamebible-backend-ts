@@ -45,8 +45,7 @@ router.post(
                 idx: number;
                 isAdmin: boolean;
             }>(
-                `
-                SELECT
+                `SELECT
                     pw,
                     user_idx AS "idx",
                     is_admin AS "isAdmin"
@@ -479,6 +478,7 @@ router.put(
                     pw`,
                 [loginUser.idx, hashedPw]
             );
+            console.log(pw);
             if (deletePwRows.length === 0) {
                 throw new BadRequestException('비밀번호 변경 실패');
             }
@@ -649,8 +649,7 @@ router.put('/image', checkLogin, uploadS3.single('image'), async (req, res, next
     let poolClient: PoolClient;
     try {
         const loginUser = req.decoded;
-        const uploadedFile = req.file;
-
+        const uploadedFile = req.file as Express.MulterS3.File;
         poolClient = await pool.connect();
         await poolClient.query('BEGIN');
 
@@ -694,7 +693,7 @@ router.put('/image', checkLogin, uploadS3.single('image'), async (req, res, next
             VALUES ($1, $2)
             RETURNING
                 idx`,
-            [uploadedFile.destination, loginUser.idx]
+            [uploadedFile.location, loginUser.idx]
         );
         if (imageRows.length === 0) {
             await poolClient.query(`ROLLBACK`);
