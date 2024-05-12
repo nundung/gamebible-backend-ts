@@ -8,20 +8,20 @@ require('dotenv').config();
 const checkAdmin: RequestHandler = (req, res, next) => {
     // `Authorization` 헤더에서 값을 추출
     const authHeader: string = req.headers.authorization;
-    console.log(authHeader);
     try {
         if (!authHeader) {
             throw new UnauthorizedException('no token');
         }
         const authArray = authHeader.split(' ');
-
-        req.decoded = jwt.verify(authArray[1], process.env.SECRET_KEY) as {
-            idx: number;
-            id: string;
-            isAdmin: boolean;
+        const jwtPayload = jwt.verify(authArray[1], process.env.SECRET_KEY);
+        if (typeof jwtPayload == 'string') throw new UnauthorizedException('no token');
+        req.decoded = {
+            idx: jwtPayload.userIdx,
+            id: jwtPayload.id,
+            isAdmin: jwtPayload.isAdmin,
         };
         const isAdmin = req.decoded.isAdmin;
-        if (isAdmin != true) {
+        if (!isAdmin) {
             throw new ForbiddenException('no admin');
         }
         next();
