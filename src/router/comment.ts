@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { PoolClient, PoolConfig } from 'pg';
-import { body } from 'express-validator';
+import { body, query } from 'express-validator';
 
 import pool from '../config/postgres';
 import checkLogin from '../middleware/checkLogin';
@@ -18,10 +18,14 @@ router.post(
         .trim()
         .isLength({ min: 1, max: 1000 })
         .withMessage('내용은 1~1000자로 입력해주세요'),
+    query('gameidx').isInt(),
+    query('postidx').isInt(),
     async (req, res, next) => {
         const content: string = req.body.content;
-        const gameIdx = parseInt(req.query.gameidx);
-        const postIdx = parseInt(req.query.postidx);
+        const gameIdxQuery = req.query.gameidx;
+        const gameIdx = typeof gameIdxQuery === 'string' ? parseInt(gameIdxQuery, 10) : null;
+        const postIdxQuery = req.query.lastIdx;
+        const postIdx = typeof postIdxQuery === 'string' ? parseInt(postIdxQuery, 10) : null;
         let poolClient: PoolClient;
         try {
             const loginUser = req.decoded;
@@ -76,8 +80,10 @@ router.post(
 //댓글 보기
 //무한스크롤
 router.get('/all', checkLogin, async (req, res, next) => {
-    const lastIdx = parseInt(req.query.lastidx as string) || 0;
-    const postIdx = parseInt(req.query.postidx as string);
+    const lastIdxQuery = req.query.lastIdx;
+    const lastIdx = typeof lastIdxQuery === 'string' ? parseInt(lastIdxQuery, 10) : 99999999;
+    const postIdxQuery = req.query.lastIdx;
+    const postIdx = typeof postIdxQuery === 'string' ? parseInt(postIdxQuery, 10) : null;
     try {
         const loginUser = req.decoded;
         //20개씩 불러오기
@@ -140,7 +146,8 @@ router.get('/all', checkLogin, async (req, res, next) => {
 
 //댓글 삭제
 router.delete('/:commentidx', checkLogin, async (req, res, next) => {
-    const commentIdx = parseInt(req.params.commentidx);
+    const commentIdxParams = req.params.gameidx;
+    const commentIdx = typeof commentIdxParams === 'string' ? parseInt(commentIdxParams, 10) : null;
     try {
         const loginUser = req.decoded;
         const { rows: deleteCommentRows } = await pool.query<{

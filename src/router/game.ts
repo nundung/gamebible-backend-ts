@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { PoolClient } from 'pg';
-import { body, query } from 'express-validator';
+import { body, query, param } from 'express-validator';
 
 import pool from '../config/postgres';
 import checkLogin from '../middleware/checkLogin';
@@ -20,7 +20,7 @@ router.post(
     body('title').trim().isLength({ min: 2 }).withMessage('2글자이상입력해주세요'),
     handleValidationError,
     async (req, res, next) => {
-        const title: string = req.body;
+        const title: string = req.body.title;
         const loginUser = req.decoded;
         try {
             const { rows: selectGameRows } = await pool.query(
@@ -55,8 +55,9 @@ router.post(
 );
 
 //게임목록불러오기
-router.get('/all', query('gameidx').isInt(), async (req, res, next) => {
-    let page = parseInt(req.query.page as string) || 1;
+router.get('/all', query('page').isInt(), async (req, res, next) => {
+    const pageQuery = req.query.gameidx;
+    const page = typeof pageQuery === 'string' ? parseInt(pageQuery, 10) : 1;
     //20개씩 불러오기
     const skip = (page - 1) * 20;
     try {
@@ -163,7 +164,8 @@ router.get(
 
 //인기게임목록불러오기(게시글순)
 router.get('/popular', query('page').isInt(), async (req, res, next) => {
-    const page = Number(req.query.page) || 1;
+    const pageQuery = req.query.page;
+    const page = typeof pageQuery === 'string' ? parseInt(pageQuery, 10) : 1;
     let skip: number;
     let count: number;
     if (page == 1) {
@@ -242,7 +244,8 @@ router.get('/popular', query('page').isInt(), async (req, res, next) => {
 
 //배너이미지 가져오기
 router.get('/:gameidx/banner', query('gameidx').isInt(), async (req, res, next) => {
-    const gameIdx = req.params.gameidx;
+    const gameIdxQuery = req.query.gameidx;
+    const gameIdx = typeof gameIdxQuery === 'string' ? parseInt(gameIdxQuery, 10) : null;
     try {
         //삭제되지않은 배너이미지경로 가져오기
         const { rows: bannerRows } = await pool.query<{
@@ -268,7 +271,8 @@ router.get('/:gameidx/banner', query('gameidx').isInt(), async (req, res, next) 
 
 //히스토리 목록보기
 router.get('/:gameidx/history/all', query('gameidx').isInt(), async (req, res, next) => {
-    const gameIdx = Number(req.params.gameidx);
+    const gameIdxQuery = req.query.gameidx;
+    const gameIdx = typeof gameIdxQuery === 'string' ? parseInt(gameIdxQuery, 10) : null;
     try {
         //특정게임 히스토리목록 최신순으로 출력
         const { rows: selectHistoryRows } = await pool.query<{
@@ -326,16 +330,23 @@ router.get('/:gameidx/history/all', query('gameidx').isInt(), async (req, res, n
 });
 
 //히스토리 자세히보기
-router.get('/:gameidx/history/:historyidx?', query('gameidx').isInt(), async (req, res, next) => {
-    let historyIdx = Number(req.params.historyidx);
-    const gameIdx = Number(req.params.gameidx);
-    try {
-        if (!historyIdx) {
-            //가장 최신 히스토리idx 출력
-            const { rows: getLatestHistoryIdxRows } = await pool.query<{
-                maxIdx: number;
-            }>(
-                `SELECT
+router.get(
+    '/:gameidx/history/:historyidx?',
+    param('gameidx').isInt(),
+    param('historyidx').isInt(),
+    async (req, res, next) => {
+        const historyIdxParams = req.params.historyidx;
+        let historyIdx =
+            typeof historyIdxParams === 'string' ? parseInt(historyIdxParams, 10) : null;
+        const gameIdxParams = req.params.gameidx;
+        let gameIdx = typeof gameIdxParams === 'string' ? parseInt(gameIdxParams, 10) : null;
+        try {
+            if (!historyIdx) {
+                //가장 최신 히스토리idx 출력
+                const { rows: getLatestHistoryIdxRows } = await pool.query<{
+                    maxIdx: number;
+                }>(
+                    `SELECT
                     MAX(idx) AS "maxIdx"
                 FROM
                     history
@@ -343,22 +354,22 @@ router.get('/:gameidx/history/:historyidx?', query('gameidx').isInt(), async (re
                     game_idx = $1
                 AND
                     created_at IS NOT NULL`,
-                [gameIdx]
-            );
-            historyIdx = getLatestHistoryIdxRows[0].maxIdx;
-        }
+                    [gameIdx]
+                );
+                historyIdx = getLatestHistoryIdxRows[0].maxIdx;
+            }
 
-        const { rows: getHistoryRows } = await pool.query<{
-            historyIdx: number;
-            gameIdx: number;
-            userIdx: number;
-            title: string;
-            content: string;
-            createdAt: Date;
-            nickname: string;
-        }>(
-            //히스토리 idx, gameidx, useridx, 내용, 시간, 닉네임 출력
-            `SELECT
+            const { rows: getHistoryRows } = await pool.query<{
+                historyIdx: number;
+                gameIdx: number;
+                userIdx: number;
+                title: string;
+                content: string;
+                createdAt: Date;
+                nickname: string;
+            }>(
+                //히스토리 idx, gameidx, useridx, 내용, 시간, 닉네임 출력
+                `SELECT
                 h.idx AS "historyIdx",
                 h.game_idx AS "gameIdx",
                 h.user_idx AS "userIdx",
@@ -380,15 +391,16 @@ router.get('/:gameidx/history/:historyidx?', query('gameidx').isInt(), async (re
                 h.idx = $1
             AND 
                 game_idx = $2`,
-            [historyIdx, gameIdx]
-        );
-        const history = getHistoryRows;
+                [historyIdx, gameIdx]
+            );
+            const history = getHistoryRows;
 
-        res.status(200).send({ data: history });
-    } catch (err) {
-        next(err);
+            res.status(200).send({ data: history });
+        } catch (err) {
+            next(err);
+        }
     }
-});
+);
 
 //게임 수정하기
 router.put(
@@ -398,7 +410,8 @@ router.put(
     body('content').trim().isLength({ min: 2 }).withMessage('2글자이상 입력해주세요'),
     handleValidationError,
     async (req, res, next) => {
-        const gameIdx = Number(req.params.gameidx);
+        const gameIdxQuery = req.query.gameidx;
+        const gameIdx = typeof gameIdxQuery === 'string' ? parseInt(gameIdxQuery, 10) : null;
         const content: string = req.body.content;
         const loginUser = req.decoded;
 
@@ -455,8 +468,9 @@ router.put(
 );
 
 // 임시위키생성
-router.post('/:gameidx/wiki', checkLogin, query('gameidx').isInt(), async (req, res, next) => {
-    const gameIdx = Number(req.params.gameidx);
+router.post('/:gameidx/wiki', checkLogin, param('gameidx').isInt(), async (req, res, next) => {
+    const gameIdxParams = req.params.gameidx;
+    const gameIdx = typeof gameIdxParams === 'string' ? parseInt(gameIdxParams, 10) : null;
     const loginUser = req.decoded;
     try {
         const { rows: temporaryHistoryRows } = await pool.query<{
@@ -513,9 +527,12 @@ router.post('/:gameidx/wiki', checkLogin, query('gameidx').isInt(), async (req, 
 router.post(
     '/:gameidx/wiki/image',
     checkLogin,
+    param('historyidx').isInt(),
     uploadS3.array('images', 1),
     async (req, res, next) => {
-        const historyIdx = Number(req.params.historyidx);
+        const historyIdxParams = req.params.historyidx;
+        const historyIdx =
+            typeof historyIdxParams === 'string' ? parseInt(historyIdxParams, 10) : null;
         const images = req.files;
         try {
             if (!images) {

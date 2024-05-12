@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { PoolClient } from 'pg';
-import { body, query } from 'express-validator';
+import { body, param, query } from 'express-validator';
 
 import pool from '../config/postgres';
 import checkLogin from '../middleware/checkLogin';
@@ -22,12 +22,16 @@ router.post(
         .withMessage('본문은 2~10000자로 입력해주세요'),
     handleValidationError,
     async (req, res, next) => {
-        const { title, content } = req.body as {
+        const {
+            title,
+            content,
+        }: {
             title: string;
             content: string;
-        };
-        const gameIdx = Number(req.query.gameidx);
-        const userIdx = Number(req.decoded.idx);
+        } = req.body;
+        const gameIdxQuery = req.query.gameidx;
+        const gameIdx = typeof gameIdxQuery === 'string' ? parseInt(gameIdxQuery, 10) : null;
+        const loginUser = req.decoded;
         try {
             const { rows: uploadPostRows } = await pool.query<{
                 gameIdx: number;
@@ -44,7 +48,7 @@ router.post(
                     ($1, $2, $3, $4, null)
                 RETURNING
                     game_idx AS "gameIdx"`,
-                [userIdx, gameIdx, title, content]
+                [loginUser.idx, gameIdx, title, content]
             );
             res.status(201).send({ data: uploadPostRows[0] });
         } catch (err) {
@@ -56,7 +60,6 @@ router.post(
 // 게시글 이미지 업로드
 router.post('/image', checkLogin, uploadS3.array('images', 1), async (req, res, next) => {
     const images = req.files;
-
     try {
         if (!images) {
             throw new BadRequestException('이미지가 없습니다');
@@ -71,8 +74,10 @@ router.post('/image', checkLogin, uploadS3.array('images', 1), async (req, res, 
 //페이지네이션
 //deleted_at 값이 null이 아닌 경우에는 탈퇴한 사용자
 router.get('/all', query('page').isInt(), query('gameidx').isInt(), async (req, res, next) => {
-    const page = Number(req.query.page) || 1;
-    const gameIdx = Number(req.query.gameidx);
+    const pageQuery = req.query.page;
+    const page = typeof pageQuery === 'string' ? parseInt(pageQuery, 10) : 1;
+    const gameIdxQuery = req.query.gameidx;
+    const gameIdx = typeof gameIdxQuery === 'string' ? parseInt(gameIdxQuery, 10) : null;
     try {
         // totalposts를 가져오는 별도의 쿼리
         const { rows: totalPostRows } = await pool.query<{
@@ -147,10 +152,12 @@ router.get('/all', query('page').isInt(), query('gameidx').isInt(), async (req, 
 //페이지네이션
 router.get(
     '/search',
+    query('page').isInt(),
     query('title').trim().isLength({ min: 2 }).withMessage('2글자 이상입력해주세요'),
     async (req, res, next) => {
-        const page = parseInt(req.query.page) || 1;
-        const title = req.query.title;
+        const pageQuery = req.query.page;
+        const page = typeof pageQuery === 'string' ? parseInt(pageQuery, 10) : 1;
+        const title: string = req.query.title;
         try {
             // totalposts를 가져오는 별도의 쿼리
             const { rows: totalPostRows } = await pool.query<{
@@ -227,8 +234,9 @@ router.get(
 );
 
 //게시글 상세보기
-router.get('/:postidx', checkLogin, async (req, res, next) => {
-    const postIdx = parseInt(req.params.postidx);
+router.get('/:postidx', param('postidx').isInt(), checkLogin, async (req, res, next) => {
+    const postIdxParams = req.params.postidx;
+    const postIdx = typeof postIdxParams === 'string' ? parseInt(postIdxParams, 10) : 1;
     let poolClient: PoolClient;
     try {
         const loginUser = req.decoded;
@@ -299,7 +307,8 @@ router.get('/:postidx', checkLogin, async (req, res, next) => {
 
 //게시글 삭제하기
 router.delete('/:postidx', checkLogin, query('postidx').isInt(), async (req, res, next) => {
-    const postIdx = Number(req.params.postidx);
+    const postIdxParams = req.params.postidx;
+    const postIdx = typeof postIdxParams === 'string' ? parseInt(postIdxParams, 10) : 1;
     const loginUser = req.decoded;
     try {
         await pool.query(

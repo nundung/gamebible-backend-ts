@@ -21,14 +21,15 @@ const checkLogin: RequestHandler = (req, res, next) => {
             // 올바른 형식이 아니면 에러 처리
             throw new BadRequestException('올바른 인증 형식이 아닙니다.');
         }
-
-        // Bearer 토큰이 맞으면 두 번째 요소를 추출하여 토큰으로 사용
-        const token = authArray[1];
-        req.decoded = jwt.verify(token, process.env.SECRET_KEY) as {
-            idx: number;
-            id: string;
-            isAdmin: boolean;
+        const jwtPayload = jwt.verify(authArray[1], process.env.SECRET_KEY!);
+        if (typeof jwtPayload == 'string') throw new UnauthorizedException('no token');
+        req.decoded = {
+            id: jwtPayload.id,
+            idx: jwtPayload.idx,
+            isAdmin: jwtPayload.isAdmin,
         };
+        // // Bearer 토큰이 맞으면 두 번째 요소를 추출하여 토큰으로 사용
+
         next();
     } catch (err) {
         const statusCode: number = err.status || 500;
