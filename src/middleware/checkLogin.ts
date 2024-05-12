@@ -25,7 +25,7 @@ const checkLogin: RequestHandler = (req, res, next) => {
         if (typeof jwtPayload == 'string') throw new UnauthorizedException('no token');
         req.decoded = {
             id: jwtPayload.id,
-            idx: jwtPayload.userIdx,
+            idx: jwtPayload.idx,
             isAdmin: jwtPayload.isAdmin,
         };
         // // Bearer 토큰이 맞으면 두 번째 요소를 추출하여 토큰으로 사용
