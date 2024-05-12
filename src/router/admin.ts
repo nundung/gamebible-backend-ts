@@ -203,8 +203,7 @@ router.get('/game/request/all', checkLogin, checkAdmin, async (req, res, next) =
         } else {
             // lastIdx보다 작은 관리자알람 20개 출력
             ({ rows: selectRequestRows } = await pool.query(
-                `
-                SELECT
+                `SELECT
                     idx,
                     user_idx AS "userIdx",
                     title,
