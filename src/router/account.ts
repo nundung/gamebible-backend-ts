@@ -38,7 +38,7 @@ router.post(
         .withMessage('비밀번호는 8자 이상 20자 이하이어야 합니다.'),
     handleValidationError,
     async (req, res, next) => {
-        const { id, pw } = req.body as { id: string; pw: string };
+        const { id, pw }: { id: string; pw: string } = req.body;
         try {
             const { rows: userRows } = await pool.query<{
                 pw: string;
@@ -70,10 +70,11 @@ router.post(
             if (!match) {
                 throw new NotFoundException('비밀번호 일치하지 않음');
             }
-
+            console.log(user.idx);
             // 비밀번호가 일치하면 토큰 생성
             const token = jwt.sign(
                 {
+                    id: id,
                     idx: user.idx,
                     isAdmin: user.isAdmin,
                 },
@@ -107,12 +108,17 @@ router.post(
         .withMessage('닉네임은 2자 이상 20자 이하로 해주세요.'),
     handleValidationError,
     async (req, res, next) => {
-        const { id, pw, nickname, email } = req.body as {
+        const {
+            id,
+            pw,
+            nickname,
+            email,
+        }: {
             id: string;
             pw: string;
             nickname: string;
             email: string;
-        };
+        } = req.body;
         const isAdmin: boolean = false;
         let poolClient: PoolClient | null;
         try {
@@ -280,7 +286,6 @@ router.post(
     async (req, res, next) => {
         try {
             const nickname: string = req.body.nickname;
-
             const { rows: nicknameRows } = await pool.query<{
                 userIdx: string;
             }>(
@@ -369,10 +374,13 @@ router.post(
     handleValidationError,
     async (req, res, next) => {
         try {
-            const { email, code } = req.body as {
+            const {
+                email,
+                code,
+            }: {
                 email: string;
                 code: string;
-            };
+            } = req.body;
             const { rows: authRows } = await pool.query<{
                 idx: number;
             }>(
@@ -489,7 +497,7 @@ router.put(
     }
 );
 
-// 내 정보 보기
+//내 정보 보기
 router.get('/info', checkLogin, async (req, res, next) => {
     try {
         const loginUser = req.decoded;
@@ -502,8 +510,7 @@ router.get('/info', checkLogin, async (req, res, next) => {
             id: string;
             nickname: string;
             email: string;
-            created_at: Date;
-            deleted_at: Date;
+            createdAt: Date;
             kakaoKey: number;
         }>(
             `SELECT
@@ -511,9 +518,7 @@ router.get('/info', checkLogin, async (req, res, next) => {
                 u.is_admin AS "isAdmin",
                 u.nickname,
                 u.email,
-                u.created_at,
-                u.deleted_at,
-                al.user_idx,
+                u.created_at AS "createdAt",
                 al.id,
                 ak.kakao_key AS "kakaoKey"
             FROM
@@ -543,7 +548,7 @@ router.get('/info', checkLogin, async (req, res, next) => {
     }
 });
 
-// 내 정보 수정
+//내 정보 수정
 router.put(
     '/info',
     checkLogin,
@@ -555,10 +560,13 @@ router.put(
     handleValidationError,
     async (req, res, next) => {
         const loginUser = req.decoded;
-        const { nickname, email } = req.body as {
+        const {
+            nickname,
+            email,
+        }: {
             nickname: string;
             email: string;
-        };
+        } = req.body;
         try {
             //저장된 정보 불러오기
             const { rows: userInfoRows } = await pool.query<{
@@ -652,7 +660,6 @@ router.put('/image', checkLogin, uploadS3.single('image'), async (req, res, next
         const uploadedFile = req.file as Express.MulterS3.File;
         poolClient = await pool.connect();
         await poolClient.query('BEGIN');
-
         if (!uploadedFile) {
             throw new BadRequestException('업로드 된 파일이 없습니다');
         }
@@ -699,6 +706,7 @@ router.put('/image', checkLogin, uploadS3.single('image'), async (req, res, next
             await poolClient.query(`ROLLBACK`);
             throw new ForbiddenException('프로필 이미지 수정 실패');
         }
+
         await poolClient.query(`COMMIT`);
         return res.status(200).send('프로필 이미지 수정 성공');
     } catch (err) {
@@ -709,7 +717,7 @@ router.put('/image', checkLogin, uploadS3.single('image'), async (req, res, next
     }
 });
 
-// 회원 탈퇴
+//회원 탈퇴
 router.delete('/', checkLogin, async (req, res, next) => {
     try {
         const loginUser = req.decoded;
@@ -790,7 +798,7 @@ router.get('/notification', checkLogin, async (req, res, next) => {
 router.delete('/notification/:notificationId', checkLogin, async (req, res, next) => {
     try {
         const loginUser = req.decoded; // 사용자 ID
-        const { notificationId } = req.params; // URL에서 알람 ID 추출
+        const notificationId = req.params.notificationId; // URL에서 알람 ID 추출
 
         // 알람이 사용자의 것인지 확인하는 쿼리
         const { rows: checkRows } = await pool.query(
@@ -850,6 +858,7 @@ router.get('/kakao/callback', async (req, res, next) => {
             params.toString(), // URLSearchParams 객체를 문자열로 변환
             { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
         );
+
         const ACCESS_TOKEN = data.access_token;
         console.log(ACCESS_TOKEN);
         const config = { headers: { Authorization: `Bearer ${ACCESS_TOKEN}` } };
@@ -924,6 +933,7 @@ router.get('/kakao/callback', async (req, res, next) => {
                 }
             }
 
+            console.log('실행');
             //user테이블에 정보 추가
             const { rows: kakaoRows } = await poolClient.query<{ idx: number }>(
                 `INSERT INTO
