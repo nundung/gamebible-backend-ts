@@ -12,7 +12,7 @@ import { generateNotification } from '../module/generateNotification';
 require('dotenv').config();
 const router = Router();
 
-// 게임 생성 요청 승인
+//게임 생성 요청 승인
 router.post(
     '/game',
     checkLogin,
@@ -23,12 +23,17 @@ router.post(
     ]),
     async (req, res, next) => {
         const loginUser = req.decoded;
-        const { requestIdx, title, titleKor, titleEng } = req.body as {
+        const {
+            requestIdx,
+            title,
+            titleKor,
+            titleEng,
+        }: {
             requestIdx: number;
             title: string;
             titleKor: string;
             titleEng: string;
-        };
+        } = req.body;
         const { thumbnail, banner } = req.files as { [fieldname: string]: Express.MulterS3.File[] };
         let poolClient: PoolClient | null = null;
 
@@ -165,9 +170,10 @@ router.post(
     }
 );
 
-//승인요청온 게임목록보기
+//승인요청 온 게임목록보기
 router.get('/game/request/all', checkLogin, checkAdmin, async (req, res, next) => {
-    const lastIdx = parseInt(req.query.lastidx as string) || 99999999;
+    const lastIdxQuery = req.query.lastIdx;
+    const lastIdx = typeof lastIdxQuery === 'string' ? parseInt(lastIdxQuery, 10) : 99999999;
     try {
         let selectRequestRows: {
             idx: number;
@@ -221,7 +227,6 @@ router.get('/game/request/all', checkLogin, checkAdmin, async (req, res, next) =
         if (!selectRequestRows.length) {
             throw new BadRequestException('요청이 존재하지 않습니다.');
         }
-
         res.status(200).send({
             data: {
                 lastIdx: selectRequestRows[selectRequestRows.length - 1].idx,
@@ -235,7 +240,8 @@ router.get('/game/request/all', checkLogin, checkAdmin, async (req, res, next) =
 
 //승인요청 거부
 router.delete('/game/request/:requestidx', checkLogin, checkAdmin, async (req, res, next) => {
-    const requestIdx = req.params.requestidx;
+    const requestIdxParams = req.params.lastIdx;
+    const requestIdx = typeof requestIdxParams === 'string' ? parseInt(requestIdxParams, 10) : null;
     let poolClient: PoolClient;
     try {
         poolClient = await pool.connect();
@@ -321,7 +327,8 @@ router.post(
     checkAdmin,
     uploadS3.array('images', 1),
     async (req, res, next) => {
-        const gameIdx = req.params.gameidx;
+        const gameIdxParams = req.params.gameidx;
+        const gameIdx = typeof gameIdxParams === 'string' ? parseInt(gameIdxParams, 10) : null;
         let poolClient: PoolClient;
 
         try {
@@ -372,7 +379,7 @@ router.post(
     uploadS3.array('images', 1),
     async (req, res, next) => {
         const gameIdx = req.params.gameidx;
-        let poolClient;
+        let poolClient: PoolClient;
         try {
             poolClient = await pool.connect();
             const location = req.files[0].location;
